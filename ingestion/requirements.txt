@@ -1,0 +1,6 @@
+docling==2.111.0
+supabase==2.31.0
+openai>=1.0
+psycopg[binary]>=3.1
+tiktoken>=0.7
+python-dotenv>=1.0
