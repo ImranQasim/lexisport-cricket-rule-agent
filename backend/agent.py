@@ -1,14 +1,10 @@
-"""LangGraph agent wrapping the baseline retrieval as a tool, with
-Postgres-backed conversation memory.
+"""LangGraph agent wrapping the baseline retrieval and Tavily web search
+as tools, with Postgres-backed conversation memory.
 
-Scope boundary: no web search, no judge node, no retry logic here. Those
-get added to this same graph in later steps. This step delivers exactly
-two things: the LLM decides when to call search_rules (instead of the
-baseline's hardcoded retrieve-then-answer), and conversation memory via
-the LangGraph Postgres checkpointer.
-
-backend.retrieval.search_rules is called unchanged — no retrieval logic
-lives in this file.
+Scope boundary: no judge node, no retry logic here — those get added to
+this same graph in a later step. backend.retrieval.search_rules and
+backend.web_search.web_search are called unchanged — no retrieval or
+search logic lives in this file, only tool wrapping and graph wiring.
 """
 
 from __future__ import annotations
@@ -25,6 +21,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from backend.agent_prompts import AGENT_SYSTEM_PROMPT
 from backend.retrieval import search_rules
+from backend.web_search import WebSearchError, web_search
 
 PROXY_BASE_URL = os.environ.get("LITELLM_PROXY_BASE_URL", "http://localhost:4000")
 CHAT_MODEL = "gpt-4o-mini"
@@ -93,13 +90,47 @@ def make_search_rules_tool(association_id: str, grade_scope: str | None = None):
     return search_rules_tool
 
 
+@tool
+def web_search_tool(query: str) -> str:
+    """Search the public internet for current information that this
+    association's rule documents cannot contain: fixtures, results,
+    news, weather, other organizations' current policies (for example
+    Cricket Australia, ICC, MCC), current officeholders, or anything
+    that changes over time and isn't part of a fixed rule document.
+
+    Do not use this for questions about the association's own playing
+    conditions, fines, eligibility, procedures, formats, or any
+    calculation derived from those rules, even if the question also
+    names something public-sounding, a different organization, a date,
+    a place. Those still go to search_rules_tool. If a question has
+    both a rules component and a genuinely public component, call both
+    tools.
+
+    Returns a short list of web results, each with a title, source URL,
+    and a content snippet. Cite the source URL for anything you state
+    from these results.
+
+    Args:
+        query: the search query.
+    """
+    try:
+        results = web_search(query)
+    except WebSearchError:
+        return "Web search is currently unavailable. Could not retrieve current information for this query."
+    if not results:
+        return "No current web results were found for this query."
+    return "\n\n".join(f"[{r.title}]({r.url})\n{r.content}" for r in results)
+
+
 def build_graph(association_id: str, checkpointer: BaseCheckpointSaver, grade_scope: str | None = None):
     """Builds and compiles the agent graph, scoped to one association_id
     (and optionally one grade_scope) via the tool closure above. Neither
     ever enters AgentState — only messages do, which is what the
-    checkpointer persists."""
+    checkpointer persists. web_search_tool has no trusted parameter to
+    hide (a search query isn't a scoping/permission value), so it's a
+    plain module-level tool rather than a closure factory."""
     search_rules_tool = make_search_rules_tool(association_id, grade_scope=grade_scope)
-    tools = [search_rules_tool]
+    tools = [search_rules_tool, web_search_tool]
 
     llm = ChatOpenAI(model=CHAT_MODEL, base_url=PROXY_BASE_URL, api_key="routed-through-proxy")
     llm_with_tools = llm.bind_tools(tools)
