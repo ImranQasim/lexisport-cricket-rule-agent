@@ -24,7 +24,7 @@ flowchart TD
         FE[Next.js responsive frontend]
     end
 
-    subgraph Render["Render (always-on)"]
+    subgraph Render["Render (free tier)"]
         API[FastAPI agent API]
         Gateway[LiteLLM proxy gateway]
         subgraph Agent["LangGraph agent"]
@@ -76,7 +76,7 @@ flowchart TD
 6. **Monitoring: LangSmith** - every agent run is traced with latency, token cost, and judge score, which is how I debug retrieval instead of guessing.
 7. **Evaluation framework: Ragas + GitHub Actions** - Ragas scores faithfulness, context precision, context recall, and answer relevance against a golden set, and a CI gate fails any change that drops faithfulness below baseline.
 8. **User interface: Next.js on Vercel** - a responsive web app satisfies the phone-and-laptop browser requirement with one codebase.
-9. **Deployment: Render + Vercel** - the agent API and gateway run always-on on Render so there are no cold starts, and Vercel serves the frontend from its free tier.
+9. **Deployment: Render + Vercel** - the agent API and gateway run on Render's free tier, and Vercel serves the frontend from its free tier too. Free tier means both services spin down after 15 minutes idle and take about a minute to spin back up on the next request. I accepted that cold start for cert scope to keep this at zero cost, instead of paying for an always-on instance.
 10. **LLM gateway: LiteLLM proxy** - run as a service, not an SDK import, it gives every model call retries, fallbacks, budget caps, and one place where all traffic is logged.
 11. **Memory: LangGraph Postgres checkpointer** - conversation state persists in Supabase keyed by thread id, so follow-up questions resolve against prior turns.
 12. **Auth: Supabase Auth** - the API verifies the JWT the platform already issues, reusing existing auth instead of building any.
