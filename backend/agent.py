@@ -187,7 +187,11 @@ def web_search_tool(query: str) -> str:
 
 
 def make_judge_node():
-    judge_llm = ChatOpenAI(model=JUDGE_MODEL, base_url=PROXY_BASE_URL, api_key="routed-through-proxy")
+    judge_llm = ChatOpenAI(
+        model=JUDGE_MODEL,
+        base_url=PROXY_BASE_URL,
+        api_key=os.environ.get("LITELLM_PROXY_API_KEY", "routed-through-proxy"),
+    )
     judge_structured = judge_llm.with_structured_output(JudgeVerdict, include_raw=True)
 
     def judge_node(state: AgentState) -> dict:
@@ -250,7 +254,11 @@ def make_judge_node():
 
 
 def make_retry_retrieval_node(association_id: str, grade_scope: str | None = None):
-    reformulate_llm = ChatOpenAI(model=CHAT_MODEL, base_url=PROXY_BASE_URL, api_key="routed-through-proxy")
+    reformulate_llm = ChatOpenAI(
+        model=CHAT_MODEL,
+        base_url=PROXY_BASE_URL,
+        api_key=os.environ.get("LITELLM_PROXY_API_KEY", "routed-through-proxy"),
+    )
 
     def _reformulate(question: str) -> list[str]:
         t0 = time.monotonic()
@@ -361,7 +369,11 @@ def build_graph(association_id: str, checkpointer: BaseCheckpointSaver, grade_sc
     search_rules_tool = make_search_rules_tool(association_id, grade_scope=grade_scope)
     tools = [search_rules_tool, web_search_tool]
 
-    llm = ChatOpenAI(model=CHAT_MODEL, base_url=PROXY_BASE_URL, api_key="routed-through-proxy")
+    llm = ChatOpenAI(
+        model=CHAT_MODEL,
+        base_url=PROXY_BASE_URL,
+        api_key=os.environ.get("LITELLM_PROXY_API_KEY", "routed-through-proxy"),
+    )
     llm_with_tools = llm.bind_tools(tools)
 
     def agent_node(state: AgentState) -> dict:

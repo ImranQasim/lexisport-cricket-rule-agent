@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: lexisport-litellm-gateway
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r gateway/requirements.txt
+    startCommand: litellm --config gateway/config.yaml --port $PORT
+    healthCheckPath: /health/liveliness
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LITELLM_MASTER_KEY
+        sync: false
+
+  - type: web
+    name: lexisport-agent-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: LITELLM_PROXY_API_KEY
+        sync: false
+      - key: LITELLM_PROXY_BASE_URL
+        sync: false

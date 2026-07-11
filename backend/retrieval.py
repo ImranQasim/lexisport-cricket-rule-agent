@@ -49,7 +49,7 @@ def _embed_query(question: str) -> list[float]:
     ingestion/'s heavy Docling/torch dependency stack, since backend/ is
     what gets deployed as the FastAPI service and ingestion/ is a
     manually-run CLI tool."""
-    client = OpenAI(base_url=PROXY_BASE_URL, api_key="routed-through-proxy")
+    client = OpenAI(base_url=PROXY_BASE_URL, api_key=os.environ.get("LITELLM_PROXY_API_KEY", "routed-through-proxy"))
     response = client.embeddings.create(model=EMBEDDING_MODEL, input=[question])
     return response.data[0].embedding
 
