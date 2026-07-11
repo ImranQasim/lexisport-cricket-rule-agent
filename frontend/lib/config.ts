@@ -1,0 +1,17 @@
+import type { GradeScope } from "./types";
+
+// Hardcoded for cert scope — the only association with real ingested data
+// today. Production delta: fetch a real association list (and its
+// grade_scope options) from Supabase once multi-association selection
+// exists. Not built here.
+export const ASSOCIATION = {
+  id: "9b03694a-ebd4-4c4a-b378-52ab96b9abe6",
+  label: "MYCA (Mid Year Cricket Association)",
+} as const;
+
+export const GRADE_SCOPE_OPTIONS: { value: GradeScope | null; label: string }[] = [
+  { value: null, label: "All grades" },
+  { value: "junior", label: "Junior" },
+  { value: "senior_men", label: "Senior Men's" },
+  { value: "senior_women", label: "Senior Women's" },
+];

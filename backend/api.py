@@ -130,6 +130,14 @@ class ChatResponse(BaseModel):
         default_factory=list,
         description="Fabricated citations the judge flagged. Populated only when needs_human_review is true.",
     )
+    judge_reasoning: str | None = Field(
+        default=None,
+        description="The judge's own explanation for its verdict, whenever the judge ran this turn. Null if the judge was skipped (a greeting).",
+    )
+    arithmetic_ok: bool | None = Field(
+        default=None,
+        description="True if the judge checked arithmetic in the answer and it was correct, false if checked and wrong, null if no arithmetic was present or the judge did not run this turn.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,4 +304,6 @@ async def chat(
         needs_human_review=needs_human_review,
         flagged_claims=verdict.get("unsupported_claims", []) if needs_human_review else [],
         flagged_citations=verdict.get("fabricated_citations", []) if needs_human_review else [],
+        judge_reasoning=verdict.get("reasoning"),
+        arithmetic_ok=verdict.get("arithmetic_ok"),
     )
