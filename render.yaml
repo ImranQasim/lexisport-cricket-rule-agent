@@ -7,6 +7,8 @@ services:
     startCommand: litellm --config gateway/config.yaml --port $PORT
     healthCheckPath: /health/liveliness
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: OPENAI_API_KEY
         sync: false
       - key: LITELLM_MASTER_KEY
@@ -20,6 +22,8 @@ services:
     startCommand: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SECRET_KEY
