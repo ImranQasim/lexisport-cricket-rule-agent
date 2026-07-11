@@ -100,8 +100,9 @@ class ChatRequest(BaseModel):
 class RuleCitation(BaseModel):
     type: Literal["rule"] = "rule"
     section_number: str = Field(..., description="Section number as cited in the answer, e.g. '3.3' or 'J15'.")
-    document: str = Field(
-        ..., description="Document name and version as one combined string, e.g. 'MYCA Senior Men's Playing Rules v2'."
+    document: str | None = Field(
+        default=None,
+        description="Document name and version as one combined string, e.g. 'MYCA Senior Men's Playing Rules v2'. Null if the draft cited a section without naming a document.",
     )
 
 
@@ -146,22 +147,29 @@ class ChatResponse(BaseModel):
 # the frozen prompt produces.
 # ---------------------------------------------------------------------------
 
-_RULE_CITATION_RE = re.compile(r"\(Section\s+([^,]+),\s+([^)]+)\)")
+_RULE_CITATION_RE = re.compile(r"\(Section\s+([\w.]+)(?:,\s*([^)]+))?\)")
 _WEB_CITATION_RE = re.compile(r"\(Source:\s*(\S+)\)")
 
 
 def _extract_citations(answer_text: str) -> list[RuleCitation | WebCitation]:
+    # section_number is bounded to word characters and dots only (matches
+    # real section numbers like "5.3.1" or "J15") so the match stops at the
+    # citation's own closing paren instead of a bare "(Section X)" (missing
+    # the ", document" the prompt asks for, which happens occasionally)
+    # spanning greedily into a second, unrelated citation later in the text.
     citations: list[RuleCitation | WebCitation] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str | None]] = set()
 
-    for section_number, document in _RULE_CITATION_RE.findall(answer_text):
-        key = ("rule", section_number.strip(), document.strip())
+    for match in _RULE_CITATION_RE.finditer(answer_text):
+        section_number = match.group(1).strip()
+        document = match.group(2).strip() if match.group(2) else None
+        key = ("rule", section_number, document)
         if key not in seen:
             seen.add(key)
-            citations.append(RuleCitation(section_number=key[1], document=key[2]))
+            citations.append(RuleCitation(section_number=section_number, document=document))
 
     for url in _WEB_CITATION_RE.findall(answer_text):
-        key = ("web", url.strip(), "")
+        key = ("web", url.strip(), None)
         if key not in seen:
             seen.add(key)
             citations.append(WebCitation(url=url.strip()))

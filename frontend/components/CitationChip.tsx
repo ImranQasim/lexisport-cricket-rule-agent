@@ -5,7 +5,8 @@ export function CitationChip({ citation }: { citation: Citation }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
         <span aria-hidden>📖</span>
-        Section {citation.section_number} · {citation.document}
+        Section {citation.section_number}
+        {citation.document && <> · {citation.document}</>}
       </span>
     );
   }

@@ -15,7 +15,7 @@ export interface ChatRequestBody {
 export interface RuleCitation {
   type: "rule";
   section_number: string;
-  document: string;
+  document: string | null;
 }
 
 export interface WebCitation {
