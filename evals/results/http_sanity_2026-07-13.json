@@ -1,0 +1,96 @@
+[
+  {
+    "id": "eval-002",
+    "question": "Umpire: \"In U13 does the over end at 6 balls or 8 balls, and what if most of those extra balls are wides?\"",
+    "error": null,
+    "api_answer": "In U13 matches, an over consists of 6 legal deliveries, or it can be extended to 8 deliveries if those extra balls are wides or no-balls; whichever comes first counts as one over bowled (Section J15, MYCA Junior Playing Rules v1). \n\nIf most of the deliveries in an over are wides, those wides will count towards the total delivery count until the limit of 8 is reached. Therefore, the extra deliveries for wides do not extend the over beyond 8 deliveries, but an over will still be considered complete after 6 legal deliveries.\n\nLet me know if you have any further questions!",
+    "api_citations_shape": "rule",
+    "api_needs_human_review": true,
+    "local_answer": "In U13 cricket, an over is completed after either **6 legal deliveries** or **8 deliveries in total**, which includes no balls and wides; whichever comes first will count as one over bowled (Section J15, MYCA Junior Playing Rules v1). Therefore, if there are a significant number of wides, they can contribute to the total count of deliveries but do not change the fact that an over is counted as completed after 8 deliveries.\n\nIf an over contains more than 6 legitimate balls, it is still counted as 6 balls bowled for the purposes of the match rules. However, the last two overs of each innings must consist of 6 legal deliveries (Section J15, MYCA Junior Playing Rules v1). Thus, even if there are extra balls due to wides, the match rules still require a completion of 6 legal deliveries at least in certain instances. \n\nIf you need more clarification on this or have further questions, feel free to ask!",
+    "local_tools_called": [
+      "search_rules_tool",
+      "search_rules_tool"
+    ],
+    "local_needs_human_review": false,
+    "needs_human_review_agrees": false,
+    "citation_shape_agrees": true
+  },
+  {
+    "id": "eval-003",
+    "question": "Umpire: \"If the 8th ball in a junior over turns out to be a no-ball, does the batter still get a free hit, or has the over already ended?\"",
+    "error": null,
+    "api_answer": "The MYCA Junior Playing Rules specify that an over is **completed after 6 legal deliveries or after 8 deliveries total (including no-balls and wides)**, whichever comes first (Section J15, MYCA Junior Playing Rules v1). When the 8th delivery occurs, that officially concludes the over regardless of its legality.\n\nIf a no-ball is called on this 8th delivery, the rules do not detail whether a free hit is awarded in this situation. The available excerpts do not provide a definitive answer regarding if a free hit applies after a no-ball on the last delivery of an over in junior matches.\n\nTherefore, based on the retrieved excerpts, I can\u2019t confirm whether the batter would receive a free hit if the 8th ball is a no-ball, leaving this aspect unclear according to the rules.",
+    "api_citations_shape": "rule",
+    "api_needs_human_review": false,
+    "local_answer": "The MYCA Junior Playing Rules state that an over in junior matches is completed after either 6 legal deliveries or 8 deliveries (including no-balls and wides), whichever comes first (Section J15 OVERS, MYCA Junior Playing Rules v1). If a no-ball is called on the 8th delivery, it does count as one over bowled and is treated as having six balls bowled.\n\nHowever, I could not find any specific mention in the retrieved rules regarding whether a free hit is awarded for a no-ball called on the 8th delivery in junior matches. Therefore, it remains unclear whether a batter receives a free hit in this particular scenario, as it is not addressed in the current rules available.",
+    "local_tools_called": [
+      "search_rules_tool"
+    ],
+    "local_needs_human_review": false,
+    "needs_human_review_agrees": true,
+    "citation_shape_agrees": true
+  },
+  {
+    "id": "eval-010",
+    "question": "Captain: \"Is it going to rain Saturday at our home ground, should we plan for a delayed start?\"",
+    "error": null,
+    "api_answer": "The weather forecast indicates a low chance of rain this Saturday at your home ground, with a reported chance of rain at only 10% (Source: https://www.weatherapi.com/). The current conditions show clear weather, and it doesn't seem like rain will impact your match. You may proceed without planning for a delayed start unless local conditions change unexpectedly.",
+    "api_citations_shape": "web",
+    "api_needs_human_review": false,
+    "local_answer": "I couldn't find specific weather information for Saturday at your home ground. However, I recommend checking a reliable local weather source or website for the most accurate and current forecast for that day to determine if you should plan for a delayed start due to rain.",
+    "local_tools_called": [
+      "web_search_tool"
+    ],
+    "local_needs_human_review": false,
+    "needs_human_review_agrees": true,
+    "citation_shape_agrees": true
+  },
+  {
+    "id": "eval-017",
+    "question": "Our first innings lost 45 minutes total to two separate rain delays in a senior men's match. How many overs come off?",
+    "error": null,
+    "api_answer": "Based on the MYCA Senior Men's Playing Rules, the innings will lose overs due to rain delays at the rate of one over for every four minutes of time lost. \n\nIn this case, the total time lost was 45 minutes, which means:\n\n1. For 45 minutes lost, you would calculate:\n   \\[\n   45 \\div 4 = 11.25 \\text{ (overs lost)}\n   \\]\n\n2. According to the rules, if the resulting number of overs is an odd number, it should be rounded up to the next even number. Therefore, this rounds up to **12 overs lost** (Section 5.3.2, MYCA Senior Men's Playing Rules v2).\n\nThis means a total of **12 overs** will be deducted from the innings due to the rain delays.",
+    "api_citations_shape": "rule",
+    "api_needs_human_review": true,
+    "local_answer": "For the 45 minutes lost in rain delays during your senior men's match, the calculation for overs lost is as follows:\n\n1. **One over is deducted for every four minutes of time lost** (Section 5.3.2).\n2. You have 45 minutes lost, so you divide that by 4:\n   - 45 minutes \u00f7 4 = 11.25 overs.\n3. Since you round up to the next even number, the total number of overs lost will be 12 overs.\n\nAccording to the rules, this means that **12 overs will be deducted from the maximum overs each team is entitled to bat** (Section 5.3.2). Each team will therefore have their maximum overs reduced accordingly due to these delays.",
+    "local_tools_called": [
+      "search_rules_tool"
+    ],
+    "local_needs_human_review": true,
+    "needs_human_review_agrees": true,
+    "citation_shape_agrees": true
+  },
+  {
+    "id": "eval-023",
+    "question": "Senior women's match: the team bowling second finishes 3 overs short of the minimum required, 80 minutes from the start of the second innings. How many penalty runs does the batting team get?",
+    "error": null,
+    "api_answer": "In a senior women's match, if the team bowling second finishes 3 overs short of the minimum required time (80 minutes from the start of the second innings), the batting team will be awarded **5 penalty runs**. Additionally, there will be a conduct report made to the relevant cricket authority (MYCA) regarding the offending team (Section LEVEL 4: IN-GAME ONFIELD SANCTIONS/PENALTIES, MYCA Senior Women's Playing Rules v1).",
+    "api_citations_shape": "none",
+    "api_needs_human_review": false,
+    "local_answer": "In the situation described, where the team bowling second finishes 3 overs short of the minimum required after 80 minutes from the start of the second innings, the batting team is awarded **5 penalty runs** (Section LEVEL 4: IN-GAME ONFIELD SANCTIONS/PENALTIES, MYCA Senior Women's Playing Rules v1). Additionally, a conduct report will be submitted to the MYCA.",
+    "local_tools_called": [
+      "search_rules_tool"
+    ],
+    "local_needs_human_review": false,
+    "needs_human_review_agrees": true,
+    "citation_shape_agrees": false
+  },
+  {
+    "id": "eval-033",
+    "question": "What time do matches start on round 1?",
+    "error": null,
+    "api_answer": "For the opening round of the ICC Cricket World Cup 2023, here are the match start times and details:\n\n1. **Bangladesh vs Afghanistan**\n   - Start Time: 10:30 AM IST (05:00 AM GMT)\n   - Venue: HPCA Stadium, Dharamsala\n\n2. **England vs New Zealand**\n   - Start Time: 2:00 PM IST (08:30 AM GMT)\n   - Venue: Narendra Modi Stadium, Ahmedabad\n\n3. **Pakistan vs Netherlands**\n   - Start Time: 2:00 PM IST (08:30 AM GMT)\n   - Venue: Rajiv Gandhi International Stadium, Hyderabad\n\n4. **South Africa vs Sri Lanka**\n   - Start Time: 2:00 PM IST (08:30 AM GMT)\n   - Venue: Arun Jaitley Stadium, New Delhi\n\n5. **India vs Australia**\n   - Start Time: 2:00 PM IST (08:30 AM GMT)\n   - Venue: M A Chidambaram Stadium, Chennai\n\nEach of these matches starts at either 10:30 AM or 2:00 PM IST, depending on the fixture (Source: [Al Jazeera](https://www.aljazeera.com/sports/2023/9/30/icc-cricket-world-cup-2023-fixtures-and-full-match-schedule)).",
+    "api_citations_shape": "none",
+    "api_needs_human_review": false,
+    "local_answer": "The matches in Round 1 of the T20 World Cup 2024 are scheduled to start at **10:30 AM local time** (14:30 GMT) on June 1, 2024. The matches will take place at the Nassau County International Cricket Stadium in New York, USA, with several matches lined up for that day, including:\n\n- Sri Lanka vs South Africa\n- India vs Ireland\n- Canada vs Ireland\n- Netherlands vs South Africa\n- India vs Pakistan\n- Canada vs Pakistan\n- US vs India \n\nAll of these matches are set to begin at the same time of **10:30 AM local time** (Source: [Al Jazeera](https://www.aljazeera.com/sports/2024/5/22/icc-mens-t20-world-cup-2024-groups-fixtures-and-full-match-schedule-india-vs-pakistan)).",
+    "local_tools_called": [
+      "web_search_tool",
+      "web_search_tool",
+      "web_search_tool",
+      "web_search_tool"
+    ],
+    "local_needs_human_review": false,
+    "needs_human_review_agrees": true,
+    "citation_shape_agrees": false
+  }
+]
