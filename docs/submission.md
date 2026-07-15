@@ -10,6 +10,43 @@ I umpire local cricket myself, and the people who carry this problem are umpires
 
 Right now the only preparation umpires get is a handful of training meetings a year and weekly notes from the association's umpire development officer, and none of it is scenario based, it is general reminders. Detailed situations like rain rules get handed out as printed sheets that nobody can memorize, and when an umpire needs to check something mid match, the rule documents are dense PDFs that are hard to read on a phone, especially for older umpires who rarely carry a laptop to the ground. The fallback is a phone call to whoever is the match-day contact that day. I have watched this go wrong in front of me. At a senior MYCA match, play started six minutes late, which should have meant one over off each side. The bowling side then ran over time and should have lost a further over for slow over rate on top of that. Both captains argued opposite interpretations, the umpire had no way to check the actual rule in the moment, and the ruling that came out was wrong. The calculation itself is simple. Getting it right under live pressure with only memory and a phone call to fall back on is not.
 
+### How umpires solve this today
+
+```mermaid
+flowchart TD
+    Start([Live match: umpire needs a ruling under time pressure])
+    Training[Occasional training meetings plus
+weekly umpire development officer notes]
+    Sheets[Printed situational sheets
+e.g. rain rules]
+    PDF[Dense rule-document PDFs
+hard to read on a phone]
+    Decision{Umpire rules on the spot}
+    Call[Ad hoc phone call
+to match-day contact]
+    Wrong[Inconsistent or wrong ruling]
+    Right[Correct ruling]
+
+    Start --> Training
+    Start --> Sheets
+    Start --> PDF
+    Training -->|general reminders, not scenario-based| Decision
+    Sheets -->|handed out once, cannot be memorized| Decision
+    PDF -->|too slow to search live, hard to read on a phone| Decision
+    Decision -->|still uncertain| Call
+    Call -->|single ad hoc source, no way to verify| Decision
+    Decision --> Wrong
+    Decision --> Right
+
+    classDef userFacing fill:#3b82f6,color:#ffffff,stroke:#1d4ed8,stroke-width:1px
+    classDef errorProne fill:#ef4444,color:#ffffff,stroke:#b91c1c,stroke-width:1px
+    classDef success fill:#22c55e,color:#0a2e12,stroke:#15803d,stroke-width:1px
+
+    class Start,Decision userFacing
+    class Training,Sheets,PDF,Call,Wrong errorProne
+    class Right success
+```
+
 ## Solution
 
 I am building an AI assistant that answers umpires, captains, and officials from the rule documents of whichever cricket association they are working with, with citations to the specific document and section, and an honest fallback when a question falls outside those documents.
@@ -24,149 +61,222 @@ flowchart TD
         FE[Next.js responsive frontend]
     end
 
-    subgraph Render["Render (free tier)"]
+    subgraph Render["Render, free tier"]
         API[FastAPI agent API]
+        AuthKey[Static API key auth
+interim, JWT planned]
         Gateway[LiteLLM proxy gateway]
-        subgraph Agent["LangGraph agent"]
-            Route{Tool choice}
-            Rules[search_rules tool]
-            Web[Tavily web search tool]
-            Gen[Generate cited answer]
-            Judge{Judge: grounded?}
-            Review[Human review flag]
-        end
+        Agent[[LangGraph agent
+see Agent Workflow diagram]]
     end
 
-    subgraph Supabase["Supabase (one project)"]
-        SQL[(Structured tables: countries, cities, associations)]
-        Vec[(pgvector: rule chunks tagged by association_id)]
+    subgraph Supabase["Supabase, one project"]
+        SQL[(Structured tables:
+countries, cities, associations)]
+        Vec[(pgvector: rule chunks
+tagged by association_id)]
         Bucket[(Storage: raw rule PDFs)]
-        Mem[(LangGraph checkpointer: conversation memory)]
-        Auth[Supabase Auth]
+        Mem[(LangGraph checkpointer:
+conversation memory)]
     end
 
-    OpenAI[gpt-4o-mini + text-embedding-3-small]
+    OpenAI[gpt-4o-mini plus
+text-embedding-3-small]
     Tavily[Tavily API]
     LS[LangSmith: traces, cost, evals]
-    CI[GitHub Actions: Ragas eval gate]
 
     User --> FE --> API
-    API --> Auth
+    API --> AuthKey
     API --> Agent
-    Route --> Rules --> Vec
-    Route --> Web --> Tavily
-    Rules --> Gen
-    Web --> Gen
-    Gen --> Judge
-    Judge -->|low confidence| Review
+    Agent --> Vec
+    Agent --> Tavily
     Agent <--> Mem
     Agent --> Gateway --> OpenAI
     Bucket -. ingestion pipeline .-> Vec
-    API -. traces .-> LS
-    CI -. runs golden set .-> Agent
+    API -. traces, ad hoc runs .-> LS
+
+    classDef userFacing fill:#3b82f6,color:#ffffff,stroke:#1d4ed8,stroke-width:1px
+    classDef agentGraph fill:#8b5cf6,color:#ffffff,stroke:#6d28d9,stroke-width:1px
+    classDef retrievalData fill:#f59e0b,color:#1a1a1a,stroke:#b45309,stroke-width:1px
+    classDef storageSuccess fill:#22c55e,color:#0a2e12,stroke:#15803d,stroke-width:1px
+    classDef externalSvc fill:#6b7280,color:#ffffff,stroke:#374151,stroke-width:1px
+
+    class User,FE userFacing
+    class API,Agent agentGraph
+    class Vec retrievalData
+    class SQL,Bucket,Mem storageSuccess
+    class AuthKey,Gateway,OpenAI,Tavily,LS externalSvc
 ```
 
 ### Why each component
 
 1. **LLM: gpt-4o-mini** - cheap enough to serve as both generator and judge, and it is the model I have used all cohort, so its behavior with my prompts and evals is a known quantity.
-2. **Agent orchestration: LangGraph** - the judge-retry loop, honest fallback, and human review path need an explicit graph with state, not a linear chain.
+2. **Agent orchestration: LangGraph** - the judge-retry loop, mechanical citation check, honest fallback, and human review path need an explicit graph with state, not a linear chain.
 3. **Tools: search_rules + Tavily** - search_rules retrieves rule chunks hard-filtered by association_id so the agent can only see the right association's rules, and Tavily covers current public questions the rule documents cannot answer.
 4. **Embedding model: text-embedding-3-small** - cheap, proven in my earlier retrieval work, and low lock-in since swapping later only costs re-embedding the corpus.
 5. **Vector database: Supabase pgvector** - vectors live in the same Postgres as my existing association tables, so one foreign key joins structured data, chunks, and files with no second database to run or pay for.
-6. **Monitoring: LangSmith** - every agent run is traced with latency, token cost, and judge score, which is how I debug retrieval instead of guessing.
-7. **Evaluation framework: Ragas + GitHub Actions** - Ragas scores faithfulness, context precision, context recall, and answer relevance against a golden set, and a CI gate fails any change that drops faithfulness below baseline.
-8. **User interface: Next.js on Vercel** - a responsive web app satisfies the phone-and-laptop browser requirement with one codebase.
-9. **Deployment: Render + Vercel** - the agent API and gateway run on Render's free tier, and Vercel serves the frontend from its free tier too. Free tier means both services spin down after 15 minutes idle and take about a minute to spin back up on the next request. I accepted that cold start for cert scope to keep this at zero cost, instead of paying for an always-on instance.
-10. **LLM gateway: LiteLLM proxy** - run as a service, not an SDK import, it gives every model call retries, fallbacks, budget caps, and one place where all traffic is logged.
-11. **Memory: LangGraph Postgres checkpointer** - conversation state persists in Supabase keyed by thread id, so follow-up questions resolve against prior turns.
-12. **Auth: Supabase Auth** - the API verifies the JWT the platform already issues, reusing existing auth instead of building any.
+6. **Monitoring: LangSmith** - traces every agent run with latency, token cost, and judge score when tracing env vars are set, though it's wired ad hoc for eval runs today, not default-on in the Render deployment yet.
+7. **Evaluation framework: Ragas** - scores faithfulness, context precision, context recall, and answer relevancy against a 50-row golden set; a CI gate on this is designed but not yet wired.
+8. **User interface: Next.js on Vercel** - a responsive web app satisfies the phone-and-laptop browser requirement with one codebase, live at lexisport-cricket-rule-agent.vercel.app.
+9. **Deployment: Render + Vercel** - the agent API and gateway run on Render's free tier, and Vercel serves the frontend from its free tier too; free tier means both spin down after 15 minutes idle and take up to about a minute and a half to fully warm back up, a cold start I accepted for cert scope to keep this at zero cost.
+10. **LLM gateway: LiteLLM proxy** - run as a service, not an SDK import, it gives every model call retries, fallbacks, budget caps, and one place where all traffic is logged, gated by a master key so it isn't an open relay on the public internet.
+11. **Memory: LangGraph Postgres checkpointer** - conversation state persists in Supabase keyed by thread id, verified to survive across separate CLI processes, so follow-up questions resolve against prior turns.
+12. **Auth: static API key (interim)** - the API checks a single shared key today; Supabase JWT verification is the planned swap, not yet implemented.
 13. **File storage: Supabase Storage** - raw rule PDFs live in a bucket keyed by association_id, kept for re-ingestion and document versioning.
+
+The end-to-end prototype is built and deployed to a public endpoint: the frontend is live at [lexisport-cricket-rule-agent.vercel.app](https://lexisport-cricket-rule-agent.vercel.app), talking to the agent API and LiteLLM gateway running as two separate services on Render.
+
+## Agent Workflow
+
+```mermaid
+flowchart TD
+    UserQ([User question])
+    Memory[(Postgres checkpointer
+conversation memory)]
+    Agent{Agent LLM:
+decide tool call or answer}
+    Tools[[search_rules_tool /
+web_search_tool]]
+    CiteCheck{Citation check:
+mechanical provenance}
+    Judge{Judge LLM:
+grounded, cited, arithmetic ok?}
+    Retry[Retry: broadened multi-query
+rule search]
+    Flag[Flag for human review
+with reason]
+    Greet([Greeting answered directly])
+    Clean([Answer returned to user])
+    Flagged([Flagged answer plus reason
+returned to user])
+
+    UserQ --> Agent
+    Agent <-.-> Memory
+    Agent -->|tool call needed| Tools
+    Tools --> Agent
+    Agent -->|greeting question, no tool call| Greet
+    Agent -->|substantive answer, no further tool call| CiteCheck
+    CiteCheck -->|citations verified| Judge
+    CiteCheck -->|bad citation, first pass| Retry
+    CiteCheck -->|bad citation, already retried| Flag
+    Judge -->|PASS| Clean
+    Judge -->|judge call failed| Flag
+    Judge -->|FAIL, first pass| Retry
+    Judge -->|FAIL, already retried| Flag
+    Retry --> Agent
+    Flag --> Flagged
+
+    classDef userFacing fill:#3b82f6,color:#ffffff,stroke:#1d4ed8,stroke-width:1px
+    classDef agentGraph fill:#8b5cf6,color:#ffffff,stroke:#6d28d9,stroke-width:1px
+    classDef retrievalData fill:#f59e0b,color:#1a1a1a,stroke:#b45309,stroke-width:1px
+    classDef storageSuccess fill:#22c55e,color:#0a2e12,stroke:#15803d,stroke-width:1px
+    classDef judgeCheck fill:#ef4444,color:#ffffff,stroke:#b91c1c,stroke-width:1px
+
+    class UserQ,Greet userFacing
+    class Agent agentGraph
+    class Tools,Retry retrievalData
+    class Memory,Clean storageSuccess
+    class CiteCheck,Judge,Flag,Flagged judgeCheck
+```
+
+The user's question enters the agent with full conversation history restored from the Postgres checkpointer, so a follow-up like "what if they fall short of that" resolves against the prior turn. The agent LLM decides on each pass whether it needs a tool: search_rules_tool for anything grounded in the association's own documents, including calculations that depend on a rule's numbers, or web_search_tool for current public information or another body's policy, and it can call both in the same turn when a question genuinely needs both. A bare greeting skips verification entirely and returns directly; every other non-tool-call answer, including one that never called a tool at all, goes to a citation check.
+
+The citation check is a deterministic, zero-LLM pass that verifies every citation actually points at something retrieved this turn; only if that passes does the judge LLM run, checking groundedness, citation support, and arithmetic. A failure at either step triggers one retry with the question reformulated two extra ways and a broadened rule search, feeding the merged results back to the agent; a second failure, or a judge call that errors outright, is flagged for human review with the specific unsupported claim, fabricated citation, or check-failure reason attached, rather than either silently passing or blocking the answer entirely.
 
 ## Evaluation questions
 
-| # | Question | Expected answer | Source | Actual baseline answer | Result |
-|---|----------|------------------|--------|-------------------------|--------|
-| 1 | Umpire: "We started 6 minutes late today, batting side reckons they should still get the full 35 overs. What do I actually give them?" | Deduct overs for time lost at MYCA's rate of 1 over per 4 minutes lost, so 6 minutes lost means 1 over off, 34 overs allowed. If the bowling side then goes over its allotted time for those 34 overs, apply a separate over-rate deduction on top of the time-lost deduction. | MYCA Senior Playing Conditions | Identified the correct rule, 3.3.2, but could not state a number because the lookup table it points to was not retrieved. | Partial, see Baseline Evaluation Findings |
-| 2 | Umpire: "In U13 does the over end at 6 balls or 8 balls, and what if most of those extra balls are wides?" | The over ends at whichever limit is reached first, 6 legal deliveries or 8 balls bowled in total. Wides and no-balls count toward the 8-ball cap, so an over full of wides can end before 6 legal deliveries are bowled. | MYCA Junior Playing Conditions | Correctly said the over ends at whichever comes first, 6 legal deliveries or 8 total, citing J15. | Pass |
-| 3 | Umpire: "If the 8th ball in a junior over turns out to be a no-ball, does the batter still get a free hit, or has the over already ended?" | The junior playing conditions set the 8-ball cap and the no-ball/free hit rule separately, but do not state which one governs when they collide on the same delivery. | not in rules - expect honest fallback | Said the rules do not appear to cover this, matching the genuine ambiguity in the real document. | Pass |
-| 4 | Captain: "If it rains after 20 overs and we can't finish, how do we decide the winner?" | MYCA Senior Playing Conditions sets out a run-rate based revised target method for interrupted one-day matches, applied once a minimum number of overs per side has been bowled. | MYCA Senior Playing Conditions | Said the rules do not appear to cover this. Avoided the fabricated "revised target" claim but missed the real answer, rule 5.2.2, a lost result is a draw. | Partial, see Baseline Evaluation Findings |
-| 5 | Parent: "My son's in the U13s, why do their overs sometimes run longer than 6 balls, is that even allowed?" | Yes. Junior grade overs can run up to 8 balls if there are wides or no-balls, because the over only ends once 6 legal deliveries or 8 total balls have been bowled, whichever comes first. | MYCA Junior Playing Conditions | Correctly explained overs can run to 8 balls under J15, matching the real rule. | Pass |
-| 6 | Umpire: "Does the women's one-day comp use the same powerplay overs as the senior comp?" | No. MYCA Women's Playing Conditions sets its own powerplay length and fielding restrictions, which differ from the senior grade. | MYCA Women's Playing Conditions | Said the rules do not appear to cover this. Confirmed correct: no MYCA document, any grade, mentions powerplay at all. The expected answer was fabricated. | Pass |
-| 7 | Captain: "One of our players wants to transfer in from another club mid-season so he can play finals with us, can we do that?" | MYCA By-Laws set a transfer window during the season and a cut-off date before which a player must be registered to be eligible for finals. A transfer after that date is not eligible for finals. | MYCA By-Laws | Said the rules do not appear to cover this, then partially cited a junior finals-eligibility clause. The real rules separate transfer limits, one per season, from finals eligibility, games played, with no unified transfer cut-off as the expected answer assumed. | Partial, see Baseline Evaluation Findings |
-| 8 | Club official: "What's the fine if we forfeit a match with less than 24 hours notice?" | MYCA By-Laws set a fixed forfeit fine for late notice, higher than the fine for a forfeit notified before the cut-off. | MYCA By-Laws | Correctly quoted Senior Men's forfeit fine, $100 rounds 1-6, $200 rounds 7-9, but the question was not grade-scoped and Senior Women's actually uses a flat $50 fine every round. Presented one grade's numbers without flagging that other grades differ. | Partial, see Baseline Evaluation Findings |
-| 9 | Umpire: "A captain reckons MCC Laws say an over is always 6 balls, full stop, so we should ignore the 8-ball cap for U13. Is he right?" | No. MYCA's own junior playing conditions set the 8-ball cap for that grade, and that local rule overrides the general MCC default of a 6-ball over. | MYCA Junior Playing Conditions (overrides MCC Law default) | Correctly said the captain is wrong and the junior 8-ball cap applies, citing J15. | Pass |
-| 10 | Captain: "Does the follow-on rule apply if we bowl the other team out cheaply in our one-day comp?" | Follow-on is a multi-innings concept that does not exist in MYCA's one-day playing conditions for any grade. | not in rules - expect honest fallback | Said the rules do not appear to cover this, matching the real rules. | Pass |
-| 11 | Captain: "Is it going to rain Saturday at our home ground, should we plan for a delayed start?" | Requires a live weather forecast for the specific ground and date, which the rule documents don't contain. | public web - expect Tavily route | Routed to web_search_tool only, 3 of 3 trials. Cited a real source URL for the weather forecast every time. | Pass |
-| 12 | Umpire: "I heard Cricket Australia changed the concussion substitute rule this season, does that apply to our grade?" | Requires checking Cricket Australia's current published policy and whether MYCA has adopted it, since the association's own documents may not yet reflect a recent national rule change. | public web - expect Tavily route | Routed to both search_rules_tool and web_search_tool, 3 of 3 trials. This question genuinely needs both: whether MYCA has adopted a Cricket Australia policy requires checking MYCA's own rules, which do not explicitly address it, then Cricket Australia's current guidelines, cited by source. | Pass, both-tools is the correct behavior for this wording, not web-only, see Web Search Tool Findings |
-| 13 | Parent: "My daughter's 12. Can she play in the boys U13 team if our club doesn't have a girls team this year?" | MYCA By-Laws set eligibility for girls to play in the corresponding boys grade when no girls team is fielded by their club, subject to age and grade limits. | MYCA By-Laws | Said the rules do not appear to cover this, despite the applicable clause, a female age allowance to play with males, being retrieved and included in context above the relevance threshold. A reasoning miss, not a retrieval miss. | Partial, see Baseline Evaluation Findings |
-| 14 | Umpire: "Ball hits the sightscreen on the full, is that a six or do I call dead ball?" | MYCA Senior Playing Conditions treats a full-pitched hit into the sightscreen as a boundary six at grounds without a boundary rope, unless that ground's specific conditions state otherwise. | MYCA Senior Playing Conditions | Said the rules do not appear to cover this. The sightscreen-specific claim was fabricated, the real general rule, 4.9.12, was not retrieved. | Partial, see Baseline Evaluation Findings |
+| # | Question | Expected answer | Source |
+|---|----------|------------------|--------|
+| 1 | Umpire: "We started 6 minutes late today, batting side reckons they should still get the full 35 overs. What do I actually give them?" | Deduct overs for time lost at MYCA's rate of 1 over per 4 minutes lost, so 6 minutes lost means 1 over off, 34 overs allowed. If the bowling side then goes over its allotted time for those 34 overs, apply a separate over-rate deduction on top of the time-lost deduction. | MYCA Senior Playing Conditions |
+| 2 | Umpire: "In U13 does the over end at 6 balls or 8 balls, and what if most of those extra balls are wides?" | The over ends at whichever limit is reached first, 6 legal deliveries or 8 balls bowled in total. Wides and no-balls count toward the 8-ball cap, so an over full of wides can end before 6 legal deliveries are bowled. | MYCA Junior Playing Conditions |
+| 3 | Umpire: "If the 8th ball in a junior over turns out to be a no-ball, does the batter still get a free hit, or has the over already ended?" | The junior playing conditions set the 8-ball cap and the no-ball/free hit rule separately, but do not state which one governs when they collide on the same delivery. | not in rules - expect honest fallback |
+| 4 | Captain: "If it rains after 20 overs and we can't finish, how do we decide the winner?" | MYCA Senior Playing Conditions sets out a run-rate based revised target method for interrupted one-day matches, applied once a minimum number of overs per side has been bowled. | MYCA Senior Playing Conditions |
+| 5 | Parent: "My son's in the U13s, why do their overs sometimes run longer than 6 balls, is that even allowed?" | Yes. Junior grade overs can run up to 8 balls if there are wides or no-balls, because the over only ends once 6 legal deliveries or 8 total balls have been bowled, whichever comes first. | MYCA Junior Playing Conditions |
+| 6 | Umpire: "Does the women's one-day comp use the same powerplay overs as the senior comp?" | No. MYCA Women's Playing Conditions sets its own powerplay length and fielding restrictions, which differ from the senior grade. | MYCA Women's Playing Conditions |
+| 7 | Captain: "One of our players wants to transfer in from another club mid-season so he can play finals with us, can we do that?" | MYCA By-Laws set a transfer window during the season and a cut-off date before which a player must be registered to be eligible for finals. A transfer after that date is not eligible for finals. | MYCA By-Laws |
+| 8 | Club official: "What's the fine if we forfeit a match with less than 24 hours notice?" | MYCA By-Laws set a fixed forfeit fine for late notice, higher than the fine for a forfeit notified before the cut-off. | MYCA By-Laws |
+| 9 | Umpire: "A captain reckons MCC Laws say an over is always 6 balls, full stop, so we should ignore the 8-ball cap for U13. Is he right?" | No. MYCA's own junior playing conditions set the 8-ball cap for that grade, and that local rule overrides the general MCC default of a 6-ball over. | MYCA Junior Playing Conditions (overrides MCC Law default) |
+| 10 | Captain: "Does the follow-on rule apply if we bowl the other team out cheaply in our one-day comp?" | Follow-on is a multi-innings concept that does not exist in MYCA's one-day playing conditions for any grade. | not in rules - expect honest fallback |
+| 11 | Captain: "Is it going to rain Saturday at our home ground, should we plan for a delayed start?" | Requires a live weather forecast for the specific ground and date, which the rule documents don't contain. | public web - expect Tavily route |
+| 12 | Umpire: "I heard Cricket Australia changed the concussion substitute rule this season, does that apply to our grade?" | Requires checking Cricket Australia's current published policy and whether MYCA has adopted it, since the association's own documents may not yet reflect a recent national rule change. | public web - expect Tavily route |
+| 13 | Parent: "My daughter's 12. Can she play in the boys U13 team if our club doesn't have a girls team this year?" | MYCA By-Laws set eligibility for girls to play in the corresponding boys grade when no girls team is fielded by their club, subject to age and grade limits. | MYCA By-Laws |
+| 14 | Umpire: "Ball hits the sightscreen on the full, is that a six or do I call dead ball?" | MYCA Senior Playing Conditions treats a full-pitched hit into the sightscreen as a boundary six at grounds without a boundary rope, unless that ground's specific conditions state otherwise. | MYCA Senior Playing Conditions |
 
-## Baseline Evaluation Findings
+These 14 were the seed for the golden set used in Evals below; full findings, including which of these expected answers turned out wrong: [docs/findings-log.md](findings-log.md).
 
-I ran the baseline retrieval and answer pipeline (search_rules, then one gpt-4o-mini call through the LiteLLM proxy, no agent framework, no judge, no web search) against real questions, using the full MYCA corpus that is actually ingested: Junior, Senior Men's, and Senior Women's playing rules, plus the two operational forms. This section replaces guesswork with what the system actually did.
+## Evals
 
-The first finding is about the evaluation table itself. Of the ten expected answers I have now checked against real documents, five turned out to be wrong. Question 1 assumed a flat one over per four minutes formula and stated 34 overs, but the real rule for a non-weather late start points to a separate lookup table, and 6 minutes lost falls in that table's 5 to 8 minute band, which is 2 overs, giving 33 overs, not 34. Question 4 invented a run rate based revised target method. The real rule is simpler: a lost result after play has commenced is just a draw. Question 6 assumed MYCA has a powerplay system that differs by grade. I searched every ingested document for the word powerplay and found it nowhere. No such system exists at all. Question 7 assumed a single rule ties a transfer cut-off date to finals eligibility. The real rules keep those two things separate, a one-transfer-per-season limit and a games-played threshold for finals, with no cut-off date connecting them. Question 14 invented a specific sightscreen rule. No such rule exists, only a general boundary six rule for a ball hit into a tree or other obstacle. Only questions 2, 5, 9, and 10 turned out to be correct as originally written. I wrote all fourteen expected answers before the real documents were ingested, and half of the ones I have now checked were wrong, in one case, question 6, wrong about a whole rule existing at all. An eval table written before a corpus exists is a guess, not a ground truth.
+**Golden set.** 50 rows, covering direct rule lookups, multi-step arithmetic, table lookups, cross-grade questions, ambiguous phrasing, absence claims, and both tool-routing behaviors, every expected answer and citation source-verified against the actual ingested documents (100%) before use. That discipline came from a real lesson: 5 of the 14 questions above turned out to have a wrong expected answer, invented rather than verified, once I checked them against the real corpus.
 
-The second finding is about retrieval recall. In three cases, question 1, 4, and 14, the real answer existed somewhere in the ingested chunks, but the specific clause needed, a lookup table, a two-line clause in a five-sentence section, or a deep sub-clause, did not make the top 5 results. The baseline did not guess in any of these cases. It either said the rules do not appear to cover the question, or, for question 1, correctly named the applicable rule and then honestly admitted it could not state a number.
+**Harness.** The harness runs each of the 50 rows through the live agent (local invocation cross-checked against the deployed Render API), scoring behavior_match against the row's expected_behavior (answer, honest_fallback, web_answer, or flag_acceptable) plus Ragas faithfulness, context precision, context recall, and answer relevancy wherever there's a real answer to score. Rows with known nondeterminism, arithmetic and ambiguous grade phrasing, run N=3 to N=5 times rather than once, for 66 total generation calls across the 50 rows; the full run, generation plus Ragas plus rubric-classifier scoring, costs $0.23.
 
-The third finding is that even when the right chunk is retrieved, the model does not reliably use it. Question 13 is the clearest case: the exact clause needed, a female age allowance to play in a boys' competition, was retrieved above the relevance threshold and included in the prompt, and the model still said the rules do not cover the question. I saw the same pattern testing two multi-step calculations directly outside the table. A question about time lost during a first innings produced three correct answers and one wrong one across four attempts with the same retrieved context and no fixed temperature setting. A related question about a mid-innings weather delay was refused three times in a row, even though the exact formula it needed was sitting in the context it had already retrieved. Retrieval itself was reliable throughout. The single LLM call is not, in both directions: sometimes refusing an answerable question, sometimes making an arithmetic mistake partway through a multi-step rule.
+| metric | value |
+|---|---|
+| overall behavior_match | 60.6% (40/66) |
+| table_lookup behavior_match | 31% (4/13) |
+| direct_rule_lookup behavior_match | 94% (17/18) |
+| formula_arithmetic behavior_match | 100% (7/7) |
+| needs_human_review rate | 33.3% (22/66) |
+| judge PASS rate | 66.7% (44/66) |
+| judge vs. Ragas agreement (answer rows) | 57% (17/30) |
+| faithfulness (answer rows) | 0.749 |
 
-The fourth finding came from ingesting the rest of the corpus today. With only the Senior Men's document ingested, there was no way to notice this, but match_rule_chunks originally filtered only on association_id, not grade. Once Junior and Senior Women's documents shared the same association_id, a senior-grade question could in principle retrieve and cite a junior-only or women's-only chunk as if it applied. Question 8 showed a real version of this: asked without specifying a grade, the baseline confidently quoted Senior Men's forfeit fine, $100 to $200 by round, with no mention that Senior Women's uses a flat $50 fine instead. I fixed the underlying gap today, match_rule_chunks and search_rules now take an optional grade_scope filter, verified working, but the fix only helps when a grade is actually supplied. A genuinely grade-ambiguous question, like question 8's, still needs either a clarifying question back to the user or an explicit warning that the answer may vary by grade, and the baseline does neither.
-
-The fifth finding came from a question outside the table, once both operational forms were ingested. Asked what the process is if a bowling action is found to be illegal, the baseline retrieved both the general rules text on suspect actions and the dedicated Suspect Bowling Action Form's own procedure chunk, both above the relevance threshold. The answer used only the rules text: correctly describing what happens once a report escalates, no action on the day, the club must rectify, a second report suspends the player from bowling, a Cricket Victoria remedial session before they can return. It never mentioned the form's own specific first step, submit that exact form to the Secretary and Umpires' Coordinator within 48 hours, keep it confidential, one form per player. Both chunks were sitting in the same context. The model favored the rule_text chunks over the procedure chunk and produced an answer that was accurate as far as it went but left out the actual first action an umpire needs to take.
-
-None of this failed silently in the sense that matters most. Every fallback I saw named no invented rule number and no fabricated section, the one case where a wrong number reached an answer, question 8, was a real number from a real document, just the wrong grade's, not an invention, and the suspect-bowling case was accurate as far as it went, just incomplete. That is the property I care most about holding at this baseline stage. It held in every test except the grade-ambiguity gap, which is now at least partially addressed at the retrieval level.
-
-## Agent Wrapper Findings
-
-I wrapped the frozen baseline's search_rules function in a LangGraph agent: the model decides when to call it as a tool, instead of the baseline's fixed retrieve-then-answer, plus conversation memory through the LangGraph Postgres checkpointer. This is a different component from the baseline above, and it surfaced problems the baseline never could, since the baseline always retrieved unconditionally and never chose a grade.
-
-The first finding is that giving the model control over tool calling introduced two new failure modes that have nothing to do with the baseline's documented weaknesses. I ran the 33-minutes question seven times before making any changes. One run never called the tool at all, the model decided the question was "a calculation based question... rather than a question about the specific rules" and answered from that false distinction alone. Three more runs called the tool but left grade_scope unset, and retrieval, searching across all four grades in the corpus now that Junior and Senior Women's are also ingested, returned the Junior document's daily overs rule for a question about a senior match, and the model answered from the wrong grade's numbers without noticing. Only three of seven runs actually retrieved from the right document.
-
-The second finding is that these two failures needed two different kinds of fix, and only one of them belonged in a prompt. The tool description had left an opening for the model to treat a calculation as somehow separate from a rules question, so I rewrote it to say plainly that a question needing arithmetic still needs the tool first, to find the rule and its numbers. That is wording tuning, and it is what this stage of the project is for. The wrong-grade problem is not a wording problem. It is the same cross-grade contamination that match_rule_chunks was built to prevent at the SQL level last session, reintroduced one layer up by letting the model choose grade_scope itself. I removed grade_scope from the tool's schema entirely and made it a caller-supplied parameter, exactly like association_id: closure-captured at graph-build time from a trusted source, the CLI's --grade-scope flag today, invisible to the model, and unchangeable by anything the model outputs. I confirmed this by printing the tool's actual JSON schema before and after, association_id was never there, and after the fix, grade_scope was not there either.
-
-The third finding is that both fixes held up under repeat testing. Five more runs of the same question after the fixes called the tool five times and retrieved from the correct grade five times. This is a small sample, the same size as the sample that first showed the problem, but the change from three-out-of-seven to five-out-of-five on the same question is a large enough swing that I am treating it as a real fix rather than noise, while still keeping in mind that five runs is not proof of five hundred.
-
-The fourth finding is that memory works, and I have direct database evidence rather than just plausible-looking output. Two turns in the same conversation thread, asking about a rule and then asking what happens if a team falls short of it, resolved the pronoun correctly on the second turn, and produced ten chained checkpoint rows and fourteen checkpoint_writes rows in Supabase, each checkpoint pointing at its parent. The same second-turn question asked on a fresh thread produced a completely different, sensible answer with no memory of the first thread at all, and the model flagged the ambiguity itself rather than guessing which meaning I intended. I also tested persistence across two entirely separate CLI processes, not just two calls in the same script: the first process exited completely before the second one started, and the second process still resolved a follow-up question against the first process's turn. That is only possible if the state lives in Postgres, which is what the checkpointer is for, not in memory that a process holds and loses on exit.
-
-The fifth finding is about what carried over from the baseline unchanged. Association isolation held through the agent exactly as it held through the baseline: a question against an association with zero ingested chunks called the tool with that association's real id, retrieved nothing, and produced an honest fallback rather than leaking another association's content. The arithmetic unreliability documented in the Baseline Evaluation Findings above did not go away, since I deliberately left the grounding and citation wording in the system prompt unchanged from the baseline to keep that comparison valid, and the same 33-minutes question that the agent now reliably retrieves the right chunks for still sometimes gets the actual calculation wrong once it has them. That is expected, and it is exactly why I did not touch that wording here. Fixing generation quality is separate work from fixing whether the right tool gets called with the right scope, and conflating the two would have made it impossible to tell, later, which layer any given wrong answer came from.
-
-## Web Search Tool Findings
-
-I added web_search_tool as the agent's second tool, wrapping the Tavily API directly rather than a prebuilt LangChain integration, so the routing description, the failure handling, and the result shaping stay fully in my own words and my own code. This section covers what happened when the agent had a real choice between two tools instead of one.
-
-The first finding is that the model does compose both tools when a question genuinely needs it, and I saw this happen every time it should. A question naming Cricket Australia's concussion substitute rule and asking whether it applies to this grade called both search_rules_tool and web_search_tool in three out of three trials, checked MYCA's own rules first, found they do not explicitly address it, then pulled Cricket Australia's current guidelines and cited the source. This is not a case where the eval table's original Tavily-only expectation was fully right: the question has a real rules-application component, whether MYCA has adopted an external policy, and answering it well needs both sources, not one. Questions that cleanly belong to one side stayed clean: the 33-minutes question stayed on search_rules_tool only across three trials, a Saturday rain forecast stayed on web_search_tool only across three trials, and a plain greeting called neither tool.
-
-The second finding is a real failure, and a different shape from anything the baseline or the memory-and-tool-choice work surfaced before. I asked whether an umpire can reverse his decision, a genuine Laws-of-Cricket question that is in neither MYCA's documents nor, really, the kind of current public information web_search_tool is described for. In three out of three trials the model never called web_search_tool at all. It called search_rules_tool, retrieved a tangentially related chunk about umpires being sole judges of light and weather, and then added an uncited claim along the lines of general cricket practice allowing umpires to reverse a decision on reflection. That sentence has no citation, and it should not exist at all under the prompt's own rule against answering from general knowledge. Two of the three trials at least flagged first that the retrieved rules do not mention decision reversal before adding the unfounded claim anyway, which is more honest in form but not in substance, since the fabricated sentence is still there either way.
-
-The third finding is that this second failure points at a real gap in the two-tool design itself, not just a prompt-following slip. search_rules_tool is scoped to the association's own documents, and web_search_tool's description is about current public information, fixtures, results, news, weather, other organizations' current policies. A timeless Laws-of-Cricket question that is not association-specific and not current fits neither description cleanly, and the model filled that gap with speculation instead of an honest fallback. The base-Laws case is exactly what the Data Strategy section already named as needing the model's own general cricket knowledge together with Tavily, but the current system prompt's grounding rule still says not to answer from general knowledge, and nothing routes this third category of question anywhere deliberately. That is a scope boundary this task's tools do not resolve, and I have left it that way rather than patching it here.
-
-The fourth finding is a characterization, not a pass or fail, of where the routing line falls for questions that name an external body without a clean split like the concussion case. Asked whether Cricket Australia's code of conduct overrides the association's own conduct rules, the model called search_rules_tool only, in three out of three trials, and answered from MYCA's own rule that members are bound by the Laws of Cricket and the association's rules. It treated this the same way it correctly treats the MCC over-count divergence question in the eval table, as something the local rules resolve on their own without needing to know the external body's actual current content. Two of the three trials were honest that the local rules do not explicitly settle the override question. None of the three reached for web_search_tool to actually check Cricket Australia's current code, even though the tool description permits calling both tools for exactly this kind of question. Whether that is the right default or not is a real design question for later, not something I am resolving here.
-
-The fifth finding is that memory and the two-tool routing work together correctly. A two-turn conversation asking a rules question about boundary distance, then a follow-up asking about current news for the association's specific ground, resolved the boundary figure from turn one and correctly used both tools on turn two, with an honest fallback for the part no news coverage existed for. Ten checkpoint rows were written for that thread, matching the count from the single-tool memory test in the Agent Wrapper Findings above, so adding a second tool did not change how memory is recorded.
-
-None of these findings change what I already knew about citations and honest fallbacks from the baseline and the first agent-wrapper pass. What is new here is that a second tool creates a third possible failure, not just wrong-tool and wrong-scope, but a question that fits neither tool's description and gets filled with uncited speculation instead of an honest gap. That is a real, repeatable finding, not a one-off, and it belongs to the judge node's job, not this one.
+table_lookup is the clear weak point: 31% behavior_match against 94% for direct rule lookups and 100% for arithmetic, with 85% of that category needing human review, the same multi-step table-dependent reasoning the earlier baseline work already flagged, now with a number attached. The judge and Ragas only agree 57% of the time on the same rows, which means a score from either one is a lead, not a verdict, and eval-023 shows exactly why: at baseline the model confidently cited "5 penalty runs" from an unrelated section and the judge silently passed it, then later, once retrieval surfaced the correct "36 penalty runs," a co-retrieved but irrelevant section left both the judge and Ragas scoring that now-correct answer as a failure. I read every flagged or clean row before trusting it, and this baseline is why. Full per-row detail: [docs/findings-log.md](findings-log.md).
 
 ## Data Strategy
 
 ### Chunking strategy
 
-I am using structure-aware chunking, not fixed-size blind chunking. Each of MYCA's documents already has its own numbering scheme, and I split on that instead of on a raw token count. The Junior document uses flat labels, J1 through J25. The Senior Men's and Senior Women's documents use a decimal hierarchy, section down to sub-clause, for example 5.3.3. A chunk boundary always falls on one of these section breaks, so a retrieved chunk is a complete rule, not half of one.
-
-Within that constraint I target roughly 500 to 800 tokens per chunk, with about 15 percent overlap, 100 to 120 tokens, between adjacent chunks. MYCA's own rules cross-reference each other constantly. Rule 5.3.3 in the Senior Men's document sets overs and time penalties and then points at the Appendix B table for the exact numbers. Without overlap, a chunk containing the penalty clause could get separated from the table it depends on, and the agent would answer with half the rule.
-
-Tables get special handling. Appendix B in both Senior documents, the overs-reduction table for time lost to rain, is about 70 rows mapping accumulated minutes lost to overs lost, running from 0 up to 280 minutes. If a chunk boundary cut through that table, a chunk covering only the first half would silently have no answer, or the wrong nearby answer, for a real question like "we lost 150 minutes today, how many overs do we lose." So every table, the Appendix B overs-reduction table, the Appendix A fines table, the junior bowling-restriction table in J16, and the over-rate schedule in J15, is extracted and kept as one chunk each, tagged as a table, and never split even if that chunk runs over the target size. A partial table is worse than no table.
-
-The three playing-conditions documents cover different grades and genders, and they genuinely disagree with each other, not just in numbers but in which rules exist at all. The Senior Women's document has a clause capping an over at 8 total balls, 6 legal deliveries or 8 balls including extras, whichever comes first. That clause does not exist anywhere in the Senior Men's document. If retrieval pulled from both documents without distinguishing them, a senior men's query could surface a women's-only rule as if it applied, which is exactly the kind of wrong answer this project exists to prevent. So every chunk carries a grade_scope tag, junior, senior_men, or senior_women, and retrieval filters on it alongside association_id.
-
-The two forms, the Player Conduct Report and the Suspect Bowling Action form, are not rules text, they are short operational documents: tick-box sections and a set of instructions for who to email and within what deadline. I chunk each form as one procedural chunk covering the instructions, plus one chunk per structured section, for example the Level 1 tick-box section separate from the Level 2 tick-box section on the conduct report. These are short documents, so this produces only a handful of chunks total. They go into the same pgvector table and are retrieved through the same single retrieval tool as the rules documents, not a separate tool, because the project's Task 2 commitment was one retrieval tool scoped by association_id, and a second tool for two small forms would add agent complexity without real benefit at this scale. They are distinguished purely by a document_type tag set to form, so a rules question about no-balls never surfaces a form chunk, and a question like "what do I do if I suspect an illegal bowling action" retrieves the form's procedure text instead of rules text.
-
-Every chunk carries the same metadata regardless of document: association_id, document_type (rules or form), grade_scope (junior, senior_men, or senior_women), section_number, and content_type (rule_text, table, or procedure). This is what lets the retrieval tool answer correctly: a senior women's overs question never surfaces a junior chunk, and a rules question never surfaces a form chunk.
+I use structure-aware chunking, splitting on each document's own section numbering (flat J-labels for Junior, a decimal hierarchy for the Senior documents) rather than a fixed token count, so a retrieved chunk is always a complete rule, never half of one. Chunks target 500 to 800 tokens with about 15 percent overlap, since MYCA's rules constantly cross-reference a table or clause elsewhere in the same section, and without overlap a penalty clause could get separated from the table it depends on. Every table, the Appendix B overs-reduction table, the Appendix A fines table, and two junior schedule tables, is extracted as one unsplit chunk regardless of size, since a partial table is worse than no table. Every chunk carries association_id, document_type, grade_scope, section_number, and content_type metadata, because the three playing-conditions documents disagree with each other by grade, not just in numbers but in which rules exist at all, and retrieval filters on that metadata to avoid surfacing the wrong grade's rule.
 
 ### Data source and external API
 
-The data source is MYCA's own documents: the three playing-conditions documents, Junior, Senior Men's, Senior Women's, and the two operational forms. They are stored as PDFs in Supabase Storage, chunked as described above, and embedded into a pgvector table scoped by association_id, using OpenAI's text-embedding-3-small model at 1536 dimensions. I chose that model over text-embedding-3-large because it gives strong retrieval quality for this kind of structured, moderate-length domain text at a fraction of the cost, and because each association's corpus is only a handful of PDFs, so the larger model's extra dimensionality buys almost nothing while roughly doubling embedding cost and pgvector storage, a cost that compounds once more associations are added to the platform.
+The data source is MYCA's own documents, ingested as 292 chunks across five documents (Junior, Senior Men's, and Senior Women's playing conditions, plus the Player Conduct Report and Suspect Bowling Action operational forms) spanning four grade scopes, junior, senior_men, senior_women, and null for the two forms, which apply across all grades. They're stored as PDFs in Supabase Storage and embedded with OpenAI's text-embedding-3-small at 1536 dimensions, chosen over the large variant because each association's corpus is only a handful of PDFs, so the larger model's extra dimensionality buys almost nothing while roughly doubling embedding cost and storage. The external API is Tavily, covering two gaps MYCA's documents don't fill: current public information like match-day weather, and base Laws of Cricket questions the documents assume rather than define, since MYCA's playing conditions only ever state where they differ from the Laws, never the Laws themselves. Local retrieval always runs first, since an association's own playing conditions override general cricket knowledge where the two overlap; only a genuine miss, silence in the documents, a current-information question, or a base-Laws question, falls through to Tavily and general knowledge, or to an honest fallback if nothing usable comes back.
 
-The external API is Tavily. It handles two different kinds of question MYCA's own documents don't cover. The first is current public information that isn't in the PDFs, like weather on a given match day. The second is basic Laws of Cricket questions that MYCA's playing conditions assume rather than define. Both the Junior and Senior documents open by stating that the Laws of Cricket apply to all matches unless a rule excludes or modifies them, which means the documents only ever spell out where MYCA differs from the Laws, never the Laws themselves. A question like what counts as an LBW dismissal, what a no ball or a wide or a dead ball is, or how an umpire signals a short run, has no answer anywhere in MYCA's corpus, because that corpus was never written to teach the base game. For this second kind of question the agent draws on the model's own general cricket knowledge together with Tavily, rather than searching a corpus that was never meant to hold the answer.
+## Improvements
 
-The two sources interact in a fixed order. Local retrieval is always attempted first, because the entire premise of this project is that an association's own playing conditions override general or public cricket knowledge where the two overlap. The Route decision in the agent workflow sends rules questions to local retrieval first, and the Found check decides whether that retrieval turned up something relevant. Only a genuine miss, whether that's a question the association's documents are silent on, a current public-information question, or a base Laws of Cricket question the documents assume without defining, falls through to Tavily and general knowledge, or to the honest fallback if nothing usable comes back.
+### Advanced retrieval: hybrid search
+
+I added match_rule_chunks_hybrid, dense pgvector search fused with Postgres full-text search via Reciprocal Rank Fusion, gated behind a RETRIEVAL_MODE env var, because two of the golden set's own retrieval misses (eval-015, eval-023) were cases where the correct chunk used different wording than the question and sat below 0.5-0.6 dense-similarity, exactly the vocabulary gap a keyword-matching leg should close. The hypothesis was confirmed in mechanism, not in outcome: on eval-023 specifically, hybrid retrieval found the correct "36 penalty runs" chunk that dense-only search had missed, but aggregate behavior_match still dropped 60.6% to 57.6%, because the same full-text leg's literal keyword matching pulled unrelated disciplinary-code sections into the fused top-k on shared words like "penalty," regressing more rows than it fixed. I kept baseline retrieval in production; RETRIEVAL_MODE was never set on Render.
+
+| metric | baseline | hybrid | delta |
+|---|---|---|---|
+| overall behavior_match | 60.6% | 57.6% | -3.0pp |
+| context_precision | 0.708 | 0.656 | -0.052 |
+| context_recall | 0.797 | 0.777 | -0.02 |
+| needs_human_review rate | 33.3% | 39.4% | +6.1pp |
+| judge PASS rate | 66.7% | 60.6% | -6.1pp |
+| faithfulness | 0.749 | 0.763 | +0.014 |
+
+### A second change: mechanical citation check
+
+I added a deterministic citation-provenance check (backend/citations.py) that runs before the judge on every pass: it verifies every citation actually points at something retrieved this turn, zero LLM calls, and a provenance FAIL is authoritative, skipping that pass's judge call entirely. Across the full golden-set run it caught 4 of 66 rows; checking those against what the judge alone did at baseline, 2 (eval-011, eval-027) the judge had already caught, and 2 (eval-040, eval-045) the judge had silently PASSed, meaning the mechanical check surfaces real fabrications the LLM judge alone missed. needs_human_review rose 33.3% to 45.5% (+12.2pp), but only those same 4 rows are mechanical catches; the other 26 newly-flagged rows are pre-existing judge-only FAILs made visible, not new behavior this change introduced, so I read the rise as visibility, not regression. Two known limitations stay undesigned-around by choice: a compound citation spanning two documents in one parenthetical, and a cited sub-clause that's a sibling rather than a dotted-prefix child of an adjacent clause in the same bundled chunk, both fail toward review rather than guess. Live in production, this exact check caught a real compound-citation fabrication (Section 5.8.5, cited against both the Men's and Women's documents when only one existed) on the first live smoke test.
+
+| metric | baseline | citation check | delta |
+|---|---|---|---|
+| overall behavior_match | 60.6% | 59.1% | -1.5pp |
+| needs_human_review rate | 33.3% | 45.5% | +12.2pp |
+| judge PASS rate | 66.7% | 54.5% | -12.2pp |
+| mechanical catch rate | n/a | 6.1% (4/66) | n/a |
+| faithfulness | 0.749 | 0.747 | -0.002 |
+
+Full row-level detail for both experiments: [docs/findings-log.md](findings-log.md).
+
+## Next Steps
+
+What I'd keep for Demo Day: the layered verification design, mechanical citation check before an LLM judge, both before a human review flag, has held up under real testing precisely because each layer catches a different failure shape and none of them silently pass. The trusted-parameter pattern, association_id and grade_scope closure-captured at graph-build time and invisible to the model, is the architectural decision I'd defend hardest, since letting the model choose either was the exact class of bug, cross-grade contamination, cross-association leakage, this whole project exists to prevent. And the eval harness itself, cheap enough to rerun for $0.23 a pass, is what turned every one of these decisions from a guess into a number I can point to.
+
+What I'd change: this round of work made failures catchable, not rare, and I'd point the next round at the models that actually reason and write, not another verification layer. gpt-4o-mini runs every step today, tool-choice, retry reformulation, and answer generation, all off the same constant, and the ambiguous_phrasing category (40% behavior_match, the model confidently picking one interpretation of a multi-grade question instead of asking) looks like an agent-reasoning gap as much as a generation gap, so I'd try a stronger model for the agent's own decisions before assuming a bigger model only helps the final answer. Underneath that, table_lookup's 31% behavior_match still needs a real calculation tool instead of asking the model to do multi-step arithmetic in free text, and the hybrid experiment's actual failure mode, down-weight or filter the full-text leg, is worth one more retrieval-tuning pass before reverting to dense-only and calling it settled. Three things are also still interim by design and would need to change before this runs for real users: the static API key swapped for actual Supabase JWT verification, an admin ingestion path so a new association's documents don't require me running a script by hand, and the CI eval gate actually wired up instead of just designed.
+
+## Production Delta
+
+| Item | Why deferred | Rough cost |
+|---|---|---|
+| Supabase JWT auth (replacing static API key) | Interim single-key auth was enough to prove the architecture within cert scope | ~1 day |
+| Admin ingestion path (replacing manual CLI script) | Only one association exists so far; no multi-tenant onboarding need yet | ~2-3 days |
+| CI eval gate (GitHub Actions running the golden set on PRs) | Designed in the stack decision, never wired; harness runs locally for now | ~1 day |
+| LangSmith default-on tracing (Render env vars) | Wired ad hoc for eval runs only; not needed until there's ongoing production traffic to monitor | ~1 hour |
+| Always-on Render/Vercel instances (no cold start) | Free tier keeps cert-scope cost at $0; cold start is a UX tradeoff, not a correctness one | ~$14-25/mo |
+| Real calculation tool for multi-step arithmetic | table_lookup's 31% behavior_match is a generation problem, next round's priority, not this one's | ~2-3 days |
+| Hybrid retrieval re-tuning (down-weight/filter full-text leg) | One-variable-at-a-time discipline; first pass regressed aggregate, needs its own experiment | ~1-2 days |
+| Clarifying-question behavior for ambiguous grade-scoped questions | Model currently picks one interpretation instead of asking; needs a prompt/UX design pass | ~2 days |
