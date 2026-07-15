@@ -335,11 +335,18 @@ def main() -> None:
         golden_set = json.load(f)
     golden_by_id = {row["id"]: row for row in golden_set}
 
-    records = []
+    # Last-record-wins per (id, run_index): run_baseline.py's raw JSONL can
+    # contain more than one line for the same key if a row errored and was
+    # later retried on a resumed run (observed live -- a dropped DB
+    # connection mid-run). Only the last (authoritative) record per key
+    # should ever be scored.
+    records_by_key: dict[tuple[str, int], dict] = {}
     with open(args.in_path) as f:
         for line in f:
             if line.strip():
-                records.append(json.loads(line))
+                rec = json.loads(line)
+                records_by_key[(rec["id"], rec["run_index"])] = rec
+    records = list(records_by_key.values())
 
     already_scored: set[tuple[str, int]] = set()
     out_path = Path(args.out)

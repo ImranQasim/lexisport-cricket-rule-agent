@@ -37,7 +37,40 @@ from langgraph.checkpoint.postgres import PostgresSaver
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+import backend.agent as agent_module  # noqa: E402
 from backend.agent import build_graph  # noqa: E402
+
+# Retrieval-only latency instrumentation: wraps the search_rules reference
+# backend.agent already imported into its own namespace (`from
+# backend.retrieval import ... search_rules`), not backend.retrieval's
+# module-level name -- Python binds imported names at import time, so
+# patching backend.retrieval.search_rules after backend.agent has already
+# imported it would silently do nothing; agent_node's tool closure and
+# retry_retrieval_node both call the name bound in backend.agent. This is a
+# harness-side runtime wrapper, not a change to agent.py's source -- same
+# non-invasive-observability principle as UsageCollector above.
+_original_search_rules = agent_module.search_rules
+
+
+class RetrievalTimer:
+    def __init__(self) -> None:
+        self.total_seconds = 0.0
+        self.calls = 0
+
+    def reset(self) -> None:
+        self.total_seconds = 0.0
+        self.calls = 0
+
+    def wrapped(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        t0 = time.monotonic()
+        result = _original_search_rules(*args, **kwargs)
+        self.total_seconds += time.monotonic() - t0
+        self.calls += 1
+        return result
+
+
+_retrieval_timer = RetrievalTimer()
+agent_module.search_rules = _retrieval_timer.wrapped
 
 # N-run protocol approved for this baseline: eval-015/eval-018 are the
 # true F2 arithmetic-nondeterminism family (multi-branch formula
@@ -145,7 +178,7 @@ def _tools_called(messages: list) -> list[str]:
     return tools
 
 
-def run_one(row: dict, run_index: int, run_date: str, checkpointer) -> dict:  # noqa: ANN001
+def run_one(row: dict, run_index: int, run_date: str, checkpointer, run_label: str) -> dict:  # noqa: ANN001
     # uuid4 suffix guarantees a fresh thread even if this exact (run_date, id,
     # run_index) is ever re-invoked (e.g. re-running one row after a bugfix,
     # while keeping the same --run-date) -- the Postgres checkpointer persists
@@ -153,13 +186,14 @@ def run_one(row: dict, run_index: int, run_date: str, checkpointer) -> dict:  # 
     # without this a re-invocation would replay old conversation state into
     # what should be an independent run. Discovered live: a repeated smoketest
     # invocation under the same run-date silently reused the prior thread.
-    thread_id = f"baseline-{run_date}-{row['id']}-run{run_index}-{uuid.uuid4().hex[:8]}"
+    thread_id = f"{run_label}-{run_date}-{row['id']}-run{run_index}-{uuid.uuid4().hex[:8]}"
     graph = build_graph(row["association_id"], checkpointer, grade_scope=row.get("grade_scope"))
     collector = UsageCollector()
+    _retrieval_timer.reset()
     config = {
         "configurable": {"thread_id": thread_id},
         "callbacks": [collector],
-        "tags": ["baseline", f"baseline-{run_date}"],
+        "tags": [run_label, f"{run_label}-{run_date}"],
         "metadata": {"golden_set_id": row["id"], "run_index": run_index, "category": row["category"]},
     }
 
@@ -185,6 +219,9 @@ def run_one(row: dict, run_index: int, run_date: str, checkpointer) -> dict:  # 
         "expected_answer": row["expected_answer"],
         "expected_source": row.get("expected_source"),
         "latency_seconds": round(latency, 2),
+        "retrieval_seconds": round(_retrieval_timer.total_seconds, 3),
+        "retrieval_calls": _retrieval_timer.calls,
+        "retrieval_mode": os.environ.get("RETRIEVAL_MODE", "dense"),
         "error": error,
     }
 
@@ -197,6 +234,7 @@ def run_one(row: dict, run_index: int, run_date: str, checkpointer) -> dict:  # 
                 "tools_called": [],
                 "needs_human_review": None,
                 "judge_verdict": None,
+                "citation_verdict": None,
                 "retry_count": None,
                 "token_usage": collector.totals(),
             }
@@ -228,6 +266,7 @@ def run_one(row: dict, run_index: int, run_date: str, checkpointer) -> dict:  # 
             "tools_called": _tools_called(turn_messages),
             "needs_human_review": needs_human_review,
             "judge_verdict": result.get("judge_verdict"),
+            "citation_verdict": result.get("citation_verdict"),
             "retry_count": result.get("retry_count", 0),
             "token_usage": collector.totals(),
         }
@@ -241,9 +280,23 @@ def main() -> None:
     parser.add_argument("--out", required=True, help="output JSONL path (append-only, resumable)")
     parser.add_argument("--run-date", required=True, help="YYYY-MM-DD, used in thread_id and LangSmith tags")
     parser.add_argument("--only", default=None, help="comma-separated golden_set ids, for a partial/sanity run")
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=["dense", "hybrid"],
+        default="dense",
+        help="sets RETRIEVAL_MODE for backend.retrieval.search_rules (see that module's docstring)",
+    )
+    parser.add_argument(
+        "--run-label",
+        default=None,
+        help="thread_id/LangSmith tag prefix, e.g. 'baseline' or 'hybrid'. Defaults to --retrieval-mode.",
+    )
     args = parser.parse_args()
 
-    load_dotenv(REPO_ROOT / ".env")
+    run_label = args.run_label or args.retrieval_mode
+    os.environ["RETRIEVAL_MODE"] = args.retrieval_mode
+
+    load_dotenv(REPO_ROOT / ".env")  # override=False by default: won't clobber RETRIEVAL_MODE set above
 
     with open(args.golden_set) as f:
         golden_set = json.load(f)
@@ -255,16 +308,28 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    done: set[tuple[str, int]] = set()
+    # Last-record-wins per (id, run_index): a row that errored (e.g. a
+    # dropped DB connection mid-run -- observed live, see findings-log) gets
+    # retried on resume rather than skipped, and if a retry succeeds it
+    # appends a second line for the same key rather than rewriting the
+    # first. Every downstream reader (this loop, score.py, compile_report.py)
+    # must apply the same last-record-wins dedup or a retried row gets
+    # double-counted.
+    last_by_key: dict[tuple[str, int], dict] = {}
     if out_path.exists():
         with open(out_path) as f:
             for line in f:
                 if not line.strip():
                     continue
                 rec = json.loads(line)
-                done.add((rec["id"], rec["run_index"]))
-        if done:
-            print(f"Resuming: {len(done)} (id, run_index) pairs already completed in {out_path}")
+                last_by_key[(rec["id"], rec["run_index"])] = rec
+    done: set[tuple[str, int]] = {key for key, rec in last_by_key.items() if rec["error"] is None}
+    attempted_but_failed = len(last_by_key) - len(done)
+    if last_by_key:
+        print(
+            f"Resuming: {len(done)} (id, run_index) pairs completed, "
+            f"{attempted_but_failed} previously errored and will be retried, in {out_path}"
+        )
 
     with PostgresSaver.from_conn_string(os.environ["DATABASE_URL"]) as checkpointer:
         checkpointer.setup()  # idempotent
@@ -279,7 +344,7 @@ def main() -> None:
                         end=" ",
                         flush=True,
                     )
-                    record = run_one(row, run_index, args.run_date, checkpointer)
+                    record = run_one(row, run_index, args.run_date, checkpointer, run_label)
                     out_f.write(json.dumps(record) + "\n")
                     out_f.flush()
                     if record["error"]:

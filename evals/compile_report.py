@@ -44,12 +44,17 @@ def pct(numerator: int, denominator: int) -> str:
 
 
 def load_jsonl(path: Path) -> list[dict]:
-    records = []
+    # Last-record-wins per (id, run_index): a row that errored and was
+    # later retried on a resumed harness run produces two lines for the
+    # same key. Only the last (authoritative) one belongs in the report --
+    # otherwise a retried row is double-counted in every aggregate.
+    records_by_key: dict[tuple[str, int], dict] = {}
     with open(path) as f:
         for line in f:
             if line.strip():
-                records.append(json.loads(line))
-    return records
+                rec = json.loads(line)
+                records_by_key[(rec["id"], rec["run_index"])] = rec
+    return list(records_by_key.values())
 
 
 def agent_cost_usd(records: list[dict]) -> tuple[float, dict]:

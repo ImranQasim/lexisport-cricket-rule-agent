@@ -304,14 +304,29 @@ async def chat(
     answer_text = messages[-2].content if needs_human_review else messages[-1].content
 
     verdict = result.get("judge_verdict") or {}
+    citation_verdict = result.get("citation_verdict") or {}
+
+    # The mechanical citation check runs before the judge every turn; a
+    # provenance FAIL is authoritative and skips the judge entirely that
+    # pass (see backend.agent.route_after_citation_check), so
+    # judge_reasoning/flagged_citations must be sourced from whichever
+    # check actually caused this flag, not always the judge.
+    if needs_human_review and citation_verdict.get("verdict") == "FAIL":
+        flagged_claims: list[str] = []
+        flagged_citations = citation_verdict.get("unverified_citations", [])
+        judge_reasoning = citation_verdict.get("reason")
+    else:
+        flagged_claims = verdict.get("unsupported_claims", []) if needs_human_review else []
+        flagged_citations = verdict.get("fabricated_citations", []) if needs_human_review else []
+        judge_reasoning = verdict.get("reasoning")
 
     return ChatResponse(
         thread_id=req.thread_id,
         answer=answer_text,
         citations=_extract_citations(answer_text),
         needs_human_review=needs_human_review,
-        flagged_claims=verdict.get("unsupported_claims", []) if needs_human_review else [],
-        flagged_citations=verdict.get("fabricated_citations", []) if needs_human_review else [],
-        judge_reasoning=verdict.get("reasoning"),
+        flagged_claims=flagged_claims,
+        flagged_citations=flagged_citations,
+        judge_reasoning=judge_reasoning,
         arithmetic_ok=verdict.get("arithmetic_ok"),
     )

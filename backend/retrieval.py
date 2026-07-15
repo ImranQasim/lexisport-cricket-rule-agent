@@ -8,6 +8,17 @@ association with zero chunks returns zero rows from the database
 itself, and that ranking always happens within the correct
 association's chunks only, never crowded out by another association's
 chunks ranking higher globally.
+
+RETRIEVAL_MODE env var ("dense" default | "hybrid") selects which RPC
+search_rules calls -- match_rule_chunks (unchanged, pure pgvector
+cosine similarity) or match_rule_chunks_hybrid (dense + Postgres
+full-text search, fused with Reciprocal Rank Fusion; see
+supabase/migrations/20260714024935_add_hybrid_search_to_rule_chunks.sql
+for the fusion method and why). Read here only -- backend/agent.py,
+backend/api.py, and both prompt files are untouched by this, so
+nothing about tool descriptions, prompts, or judge behavior changes
+between modes. Unset (the deployed default), this file's behavior is
+byte-for-byte identical to before this env var existed.
 """
 
 from __future__ import annotations
@@ -26,6 +37,9 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 # unlikely to be read. Named constant, not a magic number, since later
 # evaluation varies this.
 TOP_K_DEFAULT = 5
+
+RETRIEVAL_MODE_DENSE = "dense"
+RETRIEVAL_MODE_HYBRID = "hybrid"
 
 
 @dataclass
@@ -71,19 +85,42 @@ def search_rules(
     of the association's grades — this was the only behavior available
     before more than one grade's documents were ingested for the same
     association, and cross-grade contamination becomes a real risk if
-    grade_scope is left off once multiple grades exist."""
+    grade_scope is left off once multiple grades exist.
+
+    RETRIEVAL_MODE=hybrid switches the RPC called (see module
+    docstring); the embedding, association_id/grade_scope filtering
+    semantics, and everything downstream of this function are otherwise
+    identical between modes."""
+    mode = os.environ.get("RETRIEVAL_MODE", RETRIEVAL_MODE_DENSE)
     embedding = _embed_query(question)
-    response = (
-        _client()
-        .rpc(
-            "match_rule_chunks",
-            {
-                "p_association_id": association_id,
-                "p_query_embedding": embedding,
-                "p_top_k": top_k,
-                "p_grade_scope": grade_scope,
-            },
+
+    if mode == RETRIEVAL_MODE_HYBRID:
+        response = (
+            _client()
+            .rpc(
+                "match_rule_chunks_hybrid",
+                {
+                    "p_association_id": association_id,
+                    "p_query_text": question,
+                    "p_query_embedding": embedding,
+                    "p_top_k": top_k,
+                    "p_grade_scope": grade_scope,
+                },
+            )
+            .execute()
         )
-        .execute()
-    )
+    else:
+        response = (
+            _client()
+            .rpc(
+                "match_rule_chunks",
+                {
+                    "p_association_id": association_id,
+                    "p_query_embedding": embedding,
+                    "p_top_k": top_k,
+                    "p_grade_scope": grade_scope,
+                },
+            )
+            .execute()
+        )
     return [RetrievedChunk(**row) for row in response.data]

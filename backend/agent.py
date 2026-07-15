@@ -24,6 +24,7 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
 from backend.agent_prompts import AGENT_SYSTEM_PROMPT, JUDGE_SYSTEM_PROMPT, REFORMULATION_SYSTEM_PROMPT
+from backend.citations import check_citations
 from backend.retrieval import RetrievedChunk, search_rules
 from backend.web_search import WebSearchError, web_search
 
@@ -39,6 +40,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     retry_count: int
     judge_verdict: dict | None
+    citation_verdict: dict | None
     needs_human_review: bool
 
 
@@ -92,6 +94,22 @@ def _gather_tool_evidence(messages: list) -> str:
         f"--- From {m.name or 'unknown tool'} ---\n{m.content}"
         for m in _messages_since_last_human(messages)
         if isinstance(m, ToolMessage)
+    )
+
+
+def _gather_citation_evidence(messages: list) -> str:
+    """Like _gather_tool_evidence, but also includes retry_retrieval_node's
+    broadened-search results -- injected as a SystemMessage, not a
+    ToolMessage (retry bypasses ToolNode entirely, see
+    retry_retrieval_node), so _gather_tool_evidence alone misses them on
+    the pass right after a retry. Found live during VERIFY: every
+    rule-citation false-fire in the full golden-set run had retry_count
+    == 1, because citation_check_node was checking the revised draft
+    against only the pre-retry evidence."""
+    return "\n\n".join(
+        f"--- From {m.name or type(m).__name__} ---\n{m.content}"
+        for m in _messages_since_last_human(messages)
+        if isinstance(m, (ToolMessage, SystemMessage))
     )
 
 
@@ -184,6 +202,28 @@ def web_search_tool(query: str) -> str:
     if not results:
         return "No current web results were found for this query."
     return "\n\n".join(f"[{r.title}]({r.url})\n{r.content}" for r in results)
+
+
+def citation_check_node(state: AgentState) -> dict:
+    """Deterministic, non-LLM citation-provenance check -- runs before the
+    judge on every pass. Verifies citation provenance only (does this
+    citation point at something actually retrieved this turn), never
+    citation relevance (does the cited chunk support the claim) -- see
+    backend.citations' own module docstring for that division of labor.
+    Zero LLM calls; a FAIL here skips the judge call entirely this pass
+    (route_after_citation_check sends it straight to the existing
+    retry/flag path)."""
+    messages = state["messages"]
+    draft_answer = messages[-1].content
+    evidence = _gather_citation_evidence(messages)
+    result = check_citations(draft_answer, evidence)
+    return {
+        "citation_verdict": {
+            "verdict": result.verdict,
+            "unverified_citations": result.unverified_citations,
+            "reason": result.reason,
+        }
+    }
 
 
 def make_judge_node():
@@ -298,8 +338,14 @@ def make_retry_retrieval_node(association_id: str, grade_scope: str | None = Non
             else "No matching rule excerpts were found, even after searching with reformulated phrasings."
         )
 
-        verdict = state.get("judge_verdict") or {}
-        problems = "; ".join(verdict.get("unsupported_claims", []) + verdict.get("fabricated_citations", []))
+        citation_verdict = state.get("citation_verdict") or {}
+        if citation_verdict.get("verdict") == "FAIL":
+            # Mechanical check triggered this retry -- authoritative,
+            # judge_verdict wasn't even computed this pass.
+            problems = "; ".join(citation_verdict.get("unverified_citations", []))
+        else:
+            verdict = state.get("judge_verdict") or {}
+            problems = "; ".join(verdict.get("unsupported_claims", []) + verdict.get("fabricated_citations", []))
         instruction = SystemMessage(
             content=(
                 "A verification check found problems with your previous answer"
@@ -317,10 +363,21 @@ def make_retry_retrieval_node(association_id: str, grade_scope: str | None = Non
 
 
 def flag_and_finalize_node(state: AgentState) -> dict:
-    verdict = state.get("judge_verdict") or {}
+    citation_verdict = state.get("citation_verdict") or {}
     draft_answer = state["messages"][-1].content
-    unsupported = verdict.get("unsupported_claims", [])
-    fabricated = verdict.get("fabricated_citations", [])
+
+    if citation_verdict.get("verdict") == "FAIL":
+        # Mechanical check is what caused this flag -- authoritative,
+        # judge_verdict wasn't even computed this pass (see
+        # route_after_citation_check).
+        unsupported: list[str] = []
+        fabricated = citation_verdict.get("unverified_citations", [])
+        reasoning = citation_verdict.get("reason", "no reasoning available")
+    else:
+        verdict = state.get("judge_verdict") or {}
+        unsupported = verdict.get("unsupported_claims", [])
+        fabricated = verdict.get("fabricated_citations", [])
+        reasoning = verdict.get("reasoning", "no reasoning available")
 
     lines = [
         "[NEEDS HUMAN REVIEW] This answer could not be fully verified and should be checked by a person "
@@ -333,7 +390,7 @@ def flag_and_finalize_node(state: AgentState) -> dict:
         lines += [f"- [UNVERIFIED CLAIM] {c}" for c in unsupported]
         lines += [f"- [UNVERIFIED CITATION] {c}" for c in fabricated]
     else:
-        lines += ["", f"Flagged during verification: {verdict.get('reasoning', 'no reasoning available')}"]
+        lines += ["", f"Flagged during verification: {reasoning}"]
 
     return {"messages": [AIMessage(content="\n".join(lines))], "needs_human_review": True}
 
@@ -344,6 +401,15 @@ def route_after_agent(state: AgentState) -> str:
         return "tools"
     if _is_greeting(_most_recent_human_question(state["messages"])):
         return END
+    return "citation_check"
+
+
+def route_after_citation_check(state: AgentState) -> str:
+    verdict = state.get("citation_verdict") or {}
+    if verdict.get("verdict") == "FAIL":
+        if state.get("retry_count", 0) == 0:
+            return "retry_retrieval"
+        return "flag_and_finalize"
     return "judge"
 
 
@@ -397,13 +463,21 @@ def build_graph(association_id: str, checkpointer: BaseCheckpointSaver, grade_sc
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(tools))
+    graph.add_node("citation_check", citation_check_node)
     graph.add_node("judge", judge_node)
     graph.add_node("retry_retrieval", retry_retrieval_node)
     graph.add_node("flag_and_finalize", flag_and_finalize_node)
 
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "judge": "judge", END: END})
+    graph.add_conditional_edges(
+        "agent", route_after_agent, {"tools": "tools", "citation_check": "citation_check", END: END}
+    )
     graph.add_edge("tools", "agent")
+    graph.add_conditional_edges(
+        "citation_check",
+        route_after_citation_check,
+        {"retry_retrieval": "retry_retrieval", "flag_and_finalize": "flag_and_finalize", "judge": "judge"},
+    )
     graph.add_conditional_edges(
         "judge",
         route_after_judge,
