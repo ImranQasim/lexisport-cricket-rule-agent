@@ -1,3 +1,4 @@
+import { CircleAlert } from "lucide-react";
 import type { Turn } from "@/lib/types";
 import { CitationChip } from "./CitationChip";
 import { ReviewBanner } from "./ReviewBanner";
@@ -6,7 +7,7 @@ export function ChatMessage({ turn }: { turn: Turn }) {
   if (turn.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-slate-900 px-4 py-2 text-sm text-white md:max-w-[70%] dark:bg-slate-100 dark:text-slate-900">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm md:max-w-[70%]">
           {turn.question}
         </div>
       </div>
@@ -16,7 +17,8 @@ export function ChatMessage({ turn }: { turn: Turn }) {
   if (turn.role === "error") {
     return (
       <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800 md:max-w-[70%] dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+        <div className="flex max-w-[85%] items-start gap-2 rounded-2xl rounded-bl-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm leading-relaxed text-destructive md:max-w-[70%]">
+          <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
           {turn.message}
         </div>
       </div>
@@ -27,11 +29,11 @@ export function ChatMessage({ turn }: { turn: Turn }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-slate-100 px-4 py-2 text-sm text-slate-900 md:max-w-[70%] dark:bg-slate-800 dark:text-slate-100">
+      <div className="max-w-[85%] rounded-2xl rounded-bl-md bg-muted px-4 py-3 text-sm leading-relaxed text-foreground shadow-sm md:max-w-[70%]">
         <div className="whitespace-pre-wrap">{response.answer}</div>
 
         {response.citations.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/60 pt-2.5">
             {response.citations.map((c, i) => (
               <CitationChip key={i} citation={c} />
             ))}

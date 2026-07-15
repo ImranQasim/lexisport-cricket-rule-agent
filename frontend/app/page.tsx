@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { MessageCircleQuestion, RotateCcw, Send } from "lucide-react";
 import { ASSOCIATION } from "@/lib/config";
 import type { ApiErrorBody, ChatResponse, GradeScope, Turn } from "@/lib/types";
 import { ChatMessage } from "@/components/ChatMessage";
 import { GradeScopePicker } from "@/components/GradeScopePicker";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
+import { Button } from "@/components/ui/button";
 
 type Status = "idle" | "thinking" | "verifying";
 
@@ -118,28 +120,35 @@ export default function Page() {
 
   return (
     <div className="mx-auto flex h-dvh w-full flex-col md:max-w-2xl">
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 md:px-8 dark:border-slate-800">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-3 md:px-8">
         <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{ASSOCIATION.label}</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Cricket rules assistant</p>
+          <h1 className="truncate text-sm font-semibold">{ASSOCIATION.label}</h1>
+          <p className="text-xs text-muted-foreground">Cricket rules assistant</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
           <GradeScopePicker value={gradeScope} onChange={setGradeScope} />
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={handleNewConversation}
-            className="whitespace-nowrap rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="h-11 gap-1.5 whitespace-nowrap rounded-lg px-3.5"
           >
+            <RotateCcw aria-hidden />
             New conversation
-          </button>
+          </Button>
         </div>
       </header>
 
-      <main className="flex-1 space-y-3 overflow-y-auto px-4 py-4 md:px-8">
+      <main className="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-8">
         {turns.length === 0 && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Ask a question about {ASSOCIATION.label}&apos;s playing conditions.
-          </p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+              <MessageCircleQuestion aria-hidden className="size-6 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Ask a question about {ASSOCIATION.label}&apos;s playing conditions.
+            </p>
+          </div>
         )}
         {turns.map((turn) => (
           <ChatMessage key={turn.id} turn={turn} />
@@ -150,22 +159,23 @@ export default function Page() {
 
       <form
         onSubmit={handleSubmit}
-        className="sticky bottom-0 flex gap-2 border-t border-slate-200 bg-white px-4 py-3 md:px-8 dark:border-slate-800 dark:bg-slate-950"
+        className="sticky bottom-0 flex gap-2 border-t border-border bg-background/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:px-8"
       >
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask a rules question…"
           disabled={status !== "idle"}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+          className="h-12 flex-1 rounded-full border border-input bg-background px-4 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
         />
-        <button
+        <Button
           type="submit"
           disabled={status !== "idle" || !input.trim()}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
+          className="h-12 gap-1.5 rounded-full px-5"
         >
+          <Send aria-hidden />
           Send
-        </button>
+        </Button>
       </form>
     </div>
   );
