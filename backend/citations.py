@@ -3,8 +3,8 @@
 Verifies that every citation in a draft answer -- "(Section X[, Document])"
 for rule content, "(Source: URL)" for web content -- points at something
 the tools actually retrieved this turn (backend.agent's search_rules_tool /
-web_search_tool output, gathered the same way judge_node already gathers
-it via _gather_tool_evidence).
+web_search_tool output, gathered the same way judge_node gathers it,
+via _gather_turn_evidence).
 
 This module deliberately does NOT verify that the cited chunk's text
 actually supports the claim being made. A citation can be completely
@@ -43,13 +43,14 @@ policy: the full golden-set VERIFY run surfaced 7 false fires on rows
 clean at baseline, all traced to two concrete bugs (not vague
 over-firing) plus one node-level evidence-gathering gap fixed in
 backend.agent instead of here:
-1. citation_check_node was reusing judge_node's _gather_tool_evidence,
-   which only reads ToolMessage content -- but retry_retrieval_node
+1. citation_check_node was reusing judge_node's then-gatherer (ToolMessage
+   content only) -- but retry_retrieval_node
    injects its broadened-search results as a SystemMessage (retry
    bypasses ToolNode entirely). Every rule-citation false-fire had
    retry_count == 1: the check was evaluating the revised draft against
    stale, pre-retry evidence. Fixed in backend.agent via a dedicated
-   _gather_citation_evidence that includes both message types.
+   gatherer including both message types (now _gather_turn_evidence,
+   shared with judge_node since the 2026-07-16 judge fix).
 2. The evidence-header regex (_RULE_HEADER_RE) used a lazy section
    group, which mis-split on section headings containing their own
    internal comma (e.g. "5.1 Naming of teams, the toss and commencement

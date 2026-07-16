@@ -89,23 +89,20 @@ def _most_recent_human_question(messages: list) -> str:
     raise ValueError("no HumanMessage found in state")
 
 
-def _gather_tool_evidence(messages: list) -> str:
-    return "\n\n".join(
-        f"--- From {m.name or 'unknown tool'} ---\n{m.content}"
-        for m in _messages_since_last_human(messages)
-        if isinstance(m, ToolMessage)
-    )
-
-
-def _gather_citation_evidence(messages: list) -> str:
-    """Like _gather_tool_evidence, but also includes retry_retrieval_node's
-    broadened-search results -- injected as a SystemMessage, not a
-    ToolMessage (retry bypasses ToolNode entirely, see
-    retry_retrieval_node), so _gather_tool_evidence alone misses them on
-    the pass right after a retry. Found live during VERIFY: every
-    rule-citation false-fire in the full golden-set run had retry_count
-    == 1, because citation_check_node was checking the revised draft
-    against only the pre-retry evidence."""
+def _gather_turn_evidence(messages: list) -> str:
+    """Evidence for this turn's verification passes: ToolMessages plus
+    retry_retrieval_node's broadened-search results -- the latter are
+    injected as a SystemMessage, not a ToolMessage (retry bypasses
+    ToolNode entirely, see retry_retrieval_node), so a ToolMessage-only
+    gather misses them on the pass right after a retry. Used by BOTH
+    citation_check_node and judge_node: the citation check learned this
+    the hard way first (every rule-citation false-fire in the full
+    golden-set VERIFY run had retry_count == 1, checking the revised
+    draft against pre-retry evidence), and the judge had the identical
+    bug until 2026-07-16 -- it validated post-retry answers against
+    ToolMessages only, flagging correct answers whose support arrived
+    via the retry (measured at a 45.5% flag rate, 26/30 judge-caused,
+    in comparison_citecheck_2026-07-15.md)."""
     return "\n\n".join(
         f"--- From {m.name or type(m).__name__} ---\n{m.content}"
         for m in _messages_since_last_human(messages)
@@ -215,7 +212,7 @@ def citation_check_node(state: AgentState) -> dict:
     retry/flag path)."""
     messages = state["messages"]
     draft_answer = messages[-1].content
-    evidence = _gather_citation_evidence(messages)
+    evidence = _gather_turn_evidence(messages)
     result = check_citations(draft_answer, evidence)
     return {
         "citation_verdict": {
@@ -238,7 +235,7 @@ def make_judge_node():
         messages = state["messages"]
         question = _most_recent_human_question(messages)
         draft_answer = messages[-1].content
-        evidence = _gather_tool_evidence(messages)
+        evidence = _gather_turn_evidence(messages)
         judge_messages = [
             SystemMessage(content=JUDGE_SYSTEM_PROMPT),
             HumanMessage(
