@@ -1,4 +1,5 @@
 import { CircleAlert } from "lucide-react";
+import { SHOW_REVIEW_BANNER } from "@/lib/config";
 import type { Turn } from "@/lib/types";
 import { CitationChip } from "./CitationChip";
 import { ReviewBanner } from "./ReviewBanner";
@@ -40,7 +41,7 @@ export function ChatMessage({ turn }: { turn: Turn }) {
           </div>
         )}
 
-        {response.needs_human_review && (
+        {SHOW_REVIEW_BANNER && response.needs_human_review && (
           <ReviewBanner
             judgeReasoning={response.judge_reasoning}
             arithmeticOk={response.arithmetic_ok}

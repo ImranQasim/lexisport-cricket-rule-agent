@@ -15,3 +15,9 @@ export const GRADE_SCOPE_OPTIONS: { value: GradeScope | null; label: string }[] 
   { value: "senior_men", label: "Senior Men's" },
   { value: "senior_women", label: "Senior Women's" },
 ];
+
+// Review banner hidden for now. needs_human_review, judge_reasoning, and
+// arithmetic_ok still flow through the API response and component props
+// untouched - this only gates whether ReviewBanner renders. Flip back to
+// true to restore it.
+export const SHOW_REVIEW_BANNER = false;
