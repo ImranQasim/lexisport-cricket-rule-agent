@@ -1,6 +1,7 @@
 import { BookOpen, ExternalLink } from "lucide-react";
 import type { Citation } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
+import { fixMisdecodedTiLigature } from "@/lib/utils";
 
 export function CitationChip({ citation }: { citation: Citation }) {
   if (citation.type === "rule") {
@@ -12,7 +13,7 @@ export function CitationChip({ citation }: { citation: Citation }) {
         <BookOpen aria-hidden className="shrink-0 text-muted-foreground" />
         <span>
           Section {citation.section_number}
-          {citation.document && <> · {citation.document}</>}
+          {citation.document && <> · {fixMisdecodedTiLigature(citation.document)}</>}
         </span>
       </Badge>
     );
