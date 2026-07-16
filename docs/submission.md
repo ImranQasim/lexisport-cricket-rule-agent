@@ -80,6 +80,17 @@ tagged by association_id)]
 conversation memory)]
     end
 
+    subgraph Ingestion["Ingestion pipeline, local CLI"]
+        Parse[Parse: Docling PDF
+extraction]
+        Chunk[Chunk: section-aware
+splitting]
+        Embed[Embed: text-embedding-3-small
+via gateway]
+        Store[Store: versioned,
+atomic write]
+    end
+
     OpenAI[gpt-4o-mini plus
 text-embedding-3-small]
     Tavily[Tavily API]
@@ -92,7 +103,7 @@ text-embedding-3-small]
     Agent --> Tavily
     Agent <--> Mem
     Agent --> Gateway --> OpenAI
-    Bucket -. ingestion pipeline .-> Vec
+    Bucket --> Parse --> Chunk --> Embed --> Store --> Vec
     API -. traces, ad hoc runs .-> LS
 
     classDef userFacing fill:#3b82f6,color:#ffffff,stroke:#1d4ed8,stroke-width:1px
@@ -103,7 +114,7 @@ text-embedding-3-small]
 
     class User,FE userFacing
     class API,Agent agentGraph
-    class Vec retrievalData
+    class Vec,Parse,Chunk,Embed,Store retrievalData
     class SQL,Bucket,Mem storageSuccess
     class AuthKey,Gateway,OpenAI,Tavily,LS externalSvc
 ```
@@ -123,6 +134,7 @@ text-embedding-3-small]
 11. **Memory: LangGraph Postgres checkpointer** - conversation state persists in Supabase keyed by thread id, verified to survive across separate CLI processes, so follow-up questions resolve against prior turns.
 12. **Auth: static API key (interim)** - the API checks a single shared key today; Supabase JWT verification is the planned swap, not yet implemented.
 13. **File storage: Supabase Storage** - raw rule PDFs live in a bucket keyed by association_id, kept for re-ingestion and document versioning.
+14. **Ingestion: Docling parsing, section-aware chunking** - Docling extracts layout, tables, and headings so chunks stay section-aware instead of a naive fixed-size split, and it fails loudly on a low-confidence, likely-scanned page instead of silently ingesting garbage. Runs as a local CLI today, not yet wired into the API.
 
 The end-to-end prototype is built and deployed to a public endpoint: the frontend is live at [lexisport-cricket-rule-agent.vercel.app](https://lexisport-cricket-rule-agent.vercel.app), talking to the agent API and LiteLLM gateway running as two separate services on Render.
 
