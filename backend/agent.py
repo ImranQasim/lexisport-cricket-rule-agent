@@ -76,9 +76,8 @@ def _is_greeting(question: str) -> bool:
     no tool call, now goes through judge — the judge must see every
     non-tool-call answer that isn't trivially a greeting, since a
     fabricated claim can appear even when the model never calls a tool
-    (this is exactly what closes the F1 gap where an uncited "generally
-    accepted" claim slipped through unflagged on a turn with zero tool
-    calls)."""
+    (an uncited "generally accepted" claim has slipped through
+    unflagged on a turn with zero tool calls before)."""
     return bool(_GREETING_RE.match(question.strip()))
 
 

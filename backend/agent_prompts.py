@@ -1,10 +1,9 @@
 """The agent's system prompt is a reviewable artifact, kept in its own
 file parallel to the baseline's prompts.py.
 
-This version (2.5) adds one paragraph on top of 2.4's prompt: the F3
-routing guidance for genuine base-Laws-of-Cricket questions that fit
-neither tool's scope. Exact diff from 2.4, per the approved judge-node
-plan:
+This version (2.5) adds one paragraph on top of 2.4's prompt: routing
+guidance for genuine base-Laws-of-Cricket questions that fit neither
+tool's scope. Exact diff from 2.4:
 
 - Added: one new paragraph, inserted between the web_search_tool
   routing paragraph and the citation-format paragraph, telling the
@@ -13,20 +12,23 @@ plan:
   association's documents" answer, not speculation and not a
   web_search_tool call.
 
-Nothing else reworded. This directly targets the F1/F3 finding in
-docs/submission.md (Web Search Tool Findings): the umpire
-decision-reversal question, which fits neither tool's description and
-was previously filled with an uncited "generally accepted" claim.
+Nothing else reworded. This paragraph exists because of a repeatable
+failure mode: asked a genuine Laws-of-Cricket question this
+association's documents don't define (e.g. can an umpire reverse his
+decision), the model would retrieve a tangentially related chunk and
+still add an uncited "it is generally accepted that..." claim
+alongside properly-cited sentences. The new paragraph gives it an
+explicit, honest way to decline instead.
 
 Unchanged, verbatim, from 2.3/2.4: the core instruction to call
 search_rules_tool for rules questions, the "no general/MCC/ICC
 knowledge" rule, "only retrieved excerpts are authoritative for this
 association", the web_search_tool routing paragraph, the citation
 format paragraph, the web-content trust-boundary sentence, and the
-honest-fallback and greeting-carve-out paragraphs — this is the
-baseline's/agent's measured behavior under test (Baseline Evaluation
-Findings, Agent Wrapper Findings, Web Search Tool Findings in
-docs/submission.md), not something to silently patch here.
+honest-fallback and greeting-carve-out paragraphs — each already
+reflects specific behavior verified against the baseline (tool-choice
+reliability, citation formatting, the general-knowledge scope boundary
+above), not something to silently patch here without re-testing.
 
 JUDGE_SYSTEM_PROMPT and REFORMULATION_SYSTEM_PROMPT below are new in
 this same change: the judge node's verification prompt, and the retry

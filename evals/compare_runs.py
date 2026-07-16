@@ -53,8 +53,8 @@ def delta_num(a: float | None, b: float | None) -> str:
 def retrieval_misses(rows: list[dict]) -> list[str]:
     """A genuine retrieval-empty case: search_rules_tool was actually
     called and came back with nothing -- distinct from the tool never
-    being called at all (a tool-routing decision, not a retrieval miss;
-    see findings-log's correction on eval-013/eval-028)."""
+    being called at all, which is a tool-routing decision (the model
+    chose not to search), not a retrieval miss."""
     return sorted(
         {r["id"] for r in rows if "search_rules_tool" in (r.get("tools_called") or []) and not r.get("rule_contexts")}
     )

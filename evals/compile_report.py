@@ -126,8 +126,8 @@ def badness_key(r: dict) -> tuple:
     # that our own judge did NOT catch. That's the single property this whole
     # project cares most about holding -- a confident, cited-looking claim
     # that's actually wrong, reaching the user with no review banner at all.
-    # Discovered via eval-023 in the HTTP sanity sample: judge PASS,
-    # faithfulness 0.33, wrong section and wrong number cited.
+    # A row in the HTTP sanity sample demonstrated exactly this: judge
+    # PASS, faithfulness 0.33, wrong section and wrong number cited.
     #
     # This must NOT be widened to "any behavior_match=False row", even though
     # that seems like the same idea -- a first attempt at this tiering did
@@ -137,8 +137,8 @@ def badness_key(r: dict) -> tuple:
     # picked the golden set's expected *category* of behavior), so nearly
     # every wrong-category row scored as "silent failure" and drowned out the
     # actually-alarming content-fabrication cases in a sea of routing misses.
-    # Those routing/category mismatches are real findings, just a distinct
-    # and less severe failure mode -- they get their own tier below.
+    # Those routing/category mismatches are real, just a distinct and
+    # less severe failure mode -- they get their own tier below.
     silent_content_failure = faithfulness_bad and not needs_review
     if silent_content_failure:
         tier = 0  # confidently fabricated content, judge didn't catch it

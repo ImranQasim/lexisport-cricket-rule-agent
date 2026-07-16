@@ -72,11 +72,12 @@ class RetrievalTimer:
 _retrieval_timer = RetrievalTimer()
 agent_module.search_rules = _retrieval_timer.wrapped
 
-# N-run protocol approved for this baseline: eval-015/eval-018 are the
-# true F2 arithmetic-nondeterminism family (multi-branch formula
-# application); eval-033/034/035/047 are grade-ambiguity questions
+# N-run protocol: the two rows below at N=5 involve multi-branch
+# arithmetic (a calculation whose formula depends on which branch of a
+# rule applies), where nondeterminism in which branch the model picks
+# is the real risk. The four rows at N=3 are grade-ambiguity questions,
 # where the risk is behavioral variance (did it silently pick one
-# grade), not arithmetic -- a lighter N=3 is enough to distinguish
+# grade) rather than arithmetic -- a lighter N is enough to distinguish
 # stable from coin-flip there. Every other row runs once.
 N_RUNS_OVERRIDE = {
     "eval-015": 5,
@@ -125,11 +126,11 @@ def _messages_since_last_human(messages: list) -> list:
 # search_rules_tool joins retrieved chunks with "\n\n", each block starting
 # "[Section ...]"; web_search_tool joins results with "\n\n", each block
 # starting "[title](url)". Retrieved rule-chunk text itself frequently
-# contains internal blank lines (paragraph breaks within one chunk -- see
-# docs/submission.md's chunking strategy, 500-800 token chunks), so a naive
-# `.split("\n\n")` fragments a single retrieved chunk into many spurious
-# contexts. Splitting only at a blank line immediately followed by "[" (a new
-# block's header) recovers the tool's actual block boundaries instead.
+# contains internal blank lines (paragraph breaks within one 500-800-token
+# chunk), so a naive `.split("\n\n")` fragments a single retrieved chunk
+# into many spurious contexts. Splitting only at a blank line immediately
+# followed by "[" (a new block's header) recovers the tool's actual block
+# boundaries instead.
 _BLOCK_BOUNDARY_RE = re.compile(r"\n\n(?=\[)")
 
 
@@ -309,7 +310,7 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Last-record-wins per (id, run_index): a row that errored (e.g. a
-    # dropped DB connection mid-run -- observed live, see findings-log) gets
+    # dropped DB connection mid-run, observed during a real run) gets
     # retried on resume rather than skipped, and if a retry succeeds it
     # appends a second line for the same key rather than rewriting the
     # first. Every downstream reader (this loop, score.py, compile_report.py)

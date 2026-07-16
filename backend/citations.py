@@ -24,25 +24,25 @@ sub-clause they relied on (e.g. "5.3.5"), which is finer than the
 chunk's own tag -- 53 of 89 real citations were exactly this shape, so
 this is matched deliberately (see _codes_match's dotted-prefix
 containment) rather than treated as unverified. The residual risk this
-opens, confirmed with a real (not hypothetical) example: eval-022 cited
-"Section 5.3.4" for a claim that IS genuinely in a retrieved "5.3"
-chunk (bowlers limited to one-fifth of overs remaining) -- but 5.3.4
-does not exist in the source document at all (the numbering skips from
-content ending near 5.3.3 straight to 5.3.5). The judge PASSed this
-too, unflagged, the same shape of miss as eval-023. Dotted-prefix
-containment matching verifies "5.3.4" against the retrieved "5.3" tag
-just as it correctly verifies the other 51 genuine cases, and cannot
-distinguish a real sub-clause number from an invented one within a
-genuinely-retrieved parent section -- that would require checking the
-cited number against the chunk's literal text, which is a semantic
-check, not a provenance one, and stays out of scope here by the same
-division of labor as eval-023.
+opens, confirmed with a real (not hypothetical) example from that same
+baseline run: one draft answer cited "Section 5.3.4" for a claim that
+IS genuinely in a retrieved "5.3" chunk (bowlers limited to one-fifth
+of overs remaining) -- but 5.3.4 does not exist in the source document
+at all (the numbering skips from content ending near 5.3.3 straight to
+5.3.5). The judge PASSed this too, unflagged. Dotted-prefix containment
+matching verifies "5.3.4" against the retrieved "5.3" tag just as it
+correctly verifies the other 51 genuine cases, and cannot distinguish a
+real sub-clause number from an invented one within a genuinely-retrieved
+parent section -- that would require checking the cited number against
+the chunk's literal text, which is a semantic check, not a provenance
+one, and stays out of scope here by that same division of labor.
 
-One tuning round happened here, per the approved plan's failure-honesty
-policy: the full golden-set VERIFY run surfaced 7 false fires on rows
-clean at baseline, all traced to two concrete bugs (not vague
-over-firing) plus one node-level evidence-gathering gap fixed in
-backend.agent instead of here:
+One tuning round happened here, following a deliberate policy of fixing
+what's found and then stopping rather than iterating indefinitely: the
+full golden-set VERIFY run surfaced 7 false fires on rows clean at
+baseline, all traced to two concrete bugs (not vague over-firing) plus
+one node-level evidence-gathering gap fixed in backend.agent instead of
+here:
 1. citation_check_node was reusing judge_node's then-gatherer (ToolMessage
    content only) -- but retry_retrieval_node
    injects its broadened-search results as a SystemMessage (retry
@@ -70,16 +70,17 @@ backend.agent instead of here:
 Re-verified after this round: 5 of 7 false-fire rows now pass cleanly.
 The remaining 2 are not treated as a third tuning round -- one is an
 already-accepted trade-off, the other a new, honestly-reported
-limitation rather than a further patch, per the plan's own "more than
-one tuning round becomes a finding, not an endless loop" discipline:
-- eval-040: two real, correctly-retrieved sections ("Section 3.2.1,
-  Doc A; Section 3.2.1, Doc B") joined in one parenthetical -- the same
-  compound shape as eval-027, and this module deliberately refuses to
-  auto-split it (see the unparseable-citation policy above) rather than
-  guess at the split. Flagged as unverified even though both underlying
-  facts are real -- an accepted cost of the conservative parsing choice,
-  not a new bug.
-- eval-045: cites "Section 11.8.6" which DOES exist verbatim in the
+limitation rather than a further patch; iterating indefinitely on
+mechanical false-fires has diminishing returns once the two real bugs
+above are fixed:
+- A compound citation naming two sections in one parenthetical
+  ("Section 3.2.1, Doc A; Section 3.2.1, Doc B") -- both real,
+  correctly-retrieved sections, but this module deliberately refuses to
+  auto-split a joined citation like this (see the unparseable-citation
+  policy above) rather than guess at the split. Flagged as unverified
+  even though both underlying facts are real -- an accepted cost of the
+  conservative parsing choice, not a new bug.
+- A citation to "Section 11.8.6", which DOES exist verbatim in the
   retrieved evidence -- but as a sibling clause appended after "11.8.5
   Appeals Tribunal Members" in the same bundled chunk, not a
   dotted-prefix child of it ("11.8.6" doesn't start with "11.8.5.").
@@ -184,8 +185,8 @@ def _codes_match(cited_code: str | None, retrieved_code: str | None) -> bool:
     already prevents "15" from matching "150.4", so requiring the
     *parent* code to itself be multi-level would incorrectly reject a
     real bare top-level chapter number like "15" (see "15 Blood Rule",
-    whose real sub-clauses are 15.1-15.6 -- found live in VERIFY,
-    eval-048, when the old stricter guard blocked this legitimate case).
+    whose real sub-clauses are 15.1-15.6 -- found live during testing,
+    when the old stricter guard blocked this legitimate case).
 
     Citation-is-coarser direction (cites the general area, a more
     specific chunk was retrieved) keeps a guard requiring the *citation*
