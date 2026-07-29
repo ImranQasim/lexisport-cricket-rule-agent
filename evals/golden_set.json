@@ -208,14 +208,15 @@
   {
     "id": "eval-017",
     "question": "Our first innings lost 45 minutes total to two separate rain delays in a senior men's match. How many overs come off?",
-    "expected_answer": "45 minutes falls in the Appendix B table's 45-48 minute band, which is a 12-over reduction from the total match overs.",
-    "expected_source": "MYCA Senior Men's Playing Rules v2, Section 17.2 (Appendix B)",
+    "expected_answer": "This is a mid-innings weather interruption, governed by Section 5.3.2(B), not the Appendix B late-start table. 45 minutes / 4 minutes-per-over = 11.25, rounded up to 12 overs lost; 12 is already even so no further rounding applies; the total lost overs are then halved and deducted from each team's own maximum overs. Result: 6 overs off each side's entitlement (35 - 6 = 29 overs each), not a flat 12-over reduction from the total match.",
+    "expected_source": "MYCA Senior Men's Playing Rules v2, Section 5.3.2(B) (mid-innings weather-interruption formula) -- not Section 17.2/Appendix B, which Section 3.3.2 scopes only to a non-weather default late start",
     "category": "table_lookup",
     "grade_scope": "senior_men",
     "association_id": "9b03694a-ebd4-4c4a-b378-52ab96b9abe6",
     "expected_behavior": "answer",
     "source": "hand_written",
-    "verified": true
+    "verified": true,
+    "notes": "Rewritten 2026-07-29 after reconciliation against actual rule_chunks source text. Original expected_answer applied the Appendix B late-start table to a rain/mid-innings scenario -- the same wrong-formula-selection error already caught and fixed in eval-018. Confirmed by querying every chunk in both Senior documents for the word 'appendix': Section 3.3.2 is the only rule text that cross-references 'the table located in the Appendix', and it explicitly scopes that reference to a non-weather default late start ('reasons other than bad light, adverse weather conditions...'). Appendix B's own title ('time lost due to rain or stoppage for natural reasons') is a documentation inconsistency in MYCA's own PDF, not an operative cross-reference. Section 5.3.2(B) is the dedicated weather/mid-innings formula and produces a materially different, halved-per-side result (6 overs off each side, not 12 off the total)."
   },
   {
     "id": "eval-018",

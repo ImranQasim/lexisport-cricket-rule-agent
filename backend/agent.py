@@ -25,6 +25,11 @@ from pydantic import BaseModel, Field
 
 from backend.agent_prompts import AGENT_SYSTEM_PROMPT, JUDGE_SYSTEM_PROMPT, REFORMULATION_SYSTEM_PROMPT
 from backend.citations import check_citations
+from backend.overs_calculations import (
+    calculate_halved_interruption_reduction,
+    calculate_remaining_time_reduction,
+    check_late_start_reduction,
+)
 from backend.retrieval import RetrievedChunk, search_rules
 from backend.web_search import WebSearchError, web_search
 
@@ -166,6 +171,109 @@ def make_search_rules_tool(association_id: str, grade_scope: str | None = None):
         )
 
     return search_rules_tool
+
+
+# The three tools below wrap backend.overs_calculations' pure arithmetic
+# functions -- no closures, no trusted/hidden parameter, since none of
+# them carry anything like association_id/grade_scope (same reasoning
+# already used for web_search_tool being a plain module-level tool
+# rather than a closure factory). Every number they take is read by the
+# model from what search_rules_tool already retrieved this turn; see
+# backend.overs_calculations' own module docstring for why no
+# association-specific fact is allowed to live in that module instead.
+
+
+@tool
+def check_late_start_reduction_tool(overs_lost: int, total_overs_cap: int) -> str:
+    """Bounds-check a late-start overs reduction. Call this after you've
+    read the reduction figure straight off a retrieved late-start table
+    (a side wasn't ready at the scheduled start, for any reason OTHER
+    than weather) — do not use this for a weather-caused delay or
+    mid-innings interruption, those need a different tool.
+
+    Read both numbers from what search_rules_tool already retrieved
+    this turn — never invent or assume either value.
+
+    Returns either the confirmed reduction, or an explicit refusal if it
+    would leave no overs to bowl. On a refusal, state that refusal in
+    your answer — do not invent a number instead.
+
+    Args:
+        overs_lost: the reduction figure you read off the retrieved table's matching band.
+        total_overs_cap: this grade's total overs for the format, from retrieved rule text.
+    """
+    result = check_late_start_reduction(overs_lost, total_overs_cap)
+    if result.status == "refused_impossible":
+        return f"REFUSED — no valid numeric answer: {result.explanation}"
+    return result.explanation
+
+
+@tool
+def calculate_halved_interruption_reduction_tool(
+    minutes_lost: int, minutes_per_over: int, total_overs_cap: int
+) -> str:
+    """Deterministically compute a mid-innings weather-interruption
+    overs reduction, for a grade whose rule text describes THIS shape:
+    convert minutes lost to overs, round up to a whole over, round up
+    again to the next even number if odd, then HALVE the result and
+    deduct it from each side's own maximum overs. Only use this if the
+    retrieved rule text actually describes a halving step — if it
+    instead describes recomputing a revised total directly from
+    remaining time, use calculate_remaining_time_reduction_tool instead.
+    Never do this arithmetic yourself in free text — it is easy to
+    silently drop the halving step, which is the exact failure this
+    tool exists to remove.
+
+    Read every number from what search_rules_tool already retrieved
+    this turn — never invent or assume a value.
+
+    Returns either the computed reduction, or an explicit refusal if the
+    numbers leave no overs remaining for either side. On a refusal,
+    state that refusal in your answer — do not invent a number instead.
+
+    Args:
+        minutes_lost: whole minutes lost, as stated in the question.
+        minutes_per_over: this grade's stated rate (e.g. "one over for every four minutes"), from retrieved rule text.
+        total_overs_cap: this grade's total overs for the format, from retrieved rule text.
+    """
+    result = calculate_halved_interruption_reduction(minutes_lost, minutes_per_over, total_overs_cap)
+    if result.status == "refused_impossible":
+        return f"REFUSED — no valid numeric answer: {result.explanation}"
+    return result.explanation
+
+
+@tool
+def calculate_remaining_time_reduction_tool(
+    minutes_lost: int, minutes_per_over: int, match_window_minutes: int
+) -> str:
+    """Deterministically compute a mid-innings weather-interruption
+    overs reduction, for a grade whose rule text describes THIS shape:
+    the revised total overs = the remaining time left in the match's
+    time window, divided directly by the minutes-per-over rate — no
+    halving step. Only use this if the retrieved rule text actually
+    describes recomputing a total this way — if it instead describes a
+    halve-and-subtract-from-a-fixed-cap procedure, use
+    calculate_halved_interruption_reduction_tool instead.
+
+    Read every number from what search_rules_tool already retrieved
+    this turn — never invent or assume a value.
+
+    Returns either the computed revised total, or an explicit refusal if
+    minutes_lost meets or exceeds the whole match window (no time
+    remains — this is the case where a result can't be achieved and the
+    match is a draw, not a numeric reduction). On a refusal, state that
+    refusal in your answer, citing whatever draw/no-result rule you
+    retrieved — do not invent a number instead.
+
+    Args:
+        minutes_lost: whole minutes lost, as stated in the question.
+        minutes_per_over: this grade's stated rate, from retrieved rule text.
+        match_window_minutes: this grade's total match time window, from retrieved rule text.
+    """
+    result = calculate_remaining_time_reduction(minutes_lost, minutes_per_over, match_window_minutes)
+    if result.status == "refused_impossible":
+        return f"REFUSED — no valid numeric answer: {result.explanation}"
+    return result.explanation
 
 
 @tool
@@ -429,7 +537,13 @@ def build_graph(association_id: str, checkpointer: BaseCheckpointSaver, grade_sc
     isn't a scoping/permission value), so it's a plain module-level tool
     rather than a closure factory."""
     search_rules_tool = make_search_rules_tool(association_id, grade_scope=grade_scope)
-    tools = [search_rules_tool, web_search_tool]
+    tools = [
+        search_rules_tool,
+        check_late_start_reduction_tool,
+        calculate_halved_interruption_reduction_tool,
+        calculate_remaining_time_reduction_tool,
+        web_search_tool,
+    ]
 
     llm = ChatOpenAI(
         model=CHAT_MODEL,
