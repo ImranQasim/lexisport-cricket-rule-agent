@@ -174,106 +174,157 @@ def make_search_rules_tool(association_id: str, grade_scope: str | None = None):
 
 
 # The three tools below wrap backend.overs_calculations' pure arithmetic
-# functions -- no closures, no trusted/hidden parameter, since none of
-# them carry anything like association_id/grade_scope (same reasoning
-# already used for web_search_tool being a plain module-level tool
-# rather than a closure factory). Every number they take is read by the
-# model from what search_rules_tool already retrieved this turn; see
+# functions. They ARE closures over grade_scope -- the same trusted-
+# parameter pattern make_search_rules_tool uses -- purely to enforce the
+# coverage map below; grade_scope is never a parameter of the inner tool
+# function, so it never appears in the tool's schema and the model can
+# neither read nor set it. Every number the model does pass is read from
+# what search_rules_tool already retrieved this turn; see
 # backend.overs_calculations' own module docstring for why no
 # association-specific fact is allowed to live in that module instead.
 
-
-@tool
-def check_late_start_reduction_tool(overs_lost: int, total_overs_cap: int) -> str:
-    """Bounds-check a late-start overs reduction. Call this after you've
-    read the reduction figure straight off a retrieved late-start table
-    (a side wasn't ready at the scheduled start, for any reason OTHER
-    than weather) — do not use this for a weather-caused delay or
-    mid-innings interruption, those need a different tool.
-
-    Read both numbers from what search_rules_tool already retrieved
-    this turn — never invent or assume either value.
-
-    Returns either the confirmed reduction, or an explicit refusal if it
-    would leave no overs to bowl. On a refusal, state that refusal in
-    your answer — do not invent a number instead.
-
-    Args:
-        overs_lost: the reduction figure you read off the retrieved table's matching band.
-        total_overs_cap: this grade's total overs for the format, from retrieved rule text.
-    """
-    result = check_late_start_reduction(overs_lost, total_overs_cap)
-    if result.status == "refused_impossible":
-        return f"REFUSED — no valid numeric answer: {result.explanation}"
-    return result.explanation
+# Which grade(s) each tool's formula actually applies to. Each tool
+# already corresponds to exactly one scenario and one governing section
+# (documented on the tool below and in backend.overs_calculations'
+# module docstring); this map is the missing enforcement that the
+# grade asking the question actually matches the grade whose rule text
+# describes that scenario, instead of trusting the model to self-police
+# via docstring alone. Built after eval-025: Junior's Section J14
+# daily-overs formula (a flat divide-by-3-after-a-15-minute-threshold
+# shape, not implemented as a tool at all -- see
+# backend.overs_calculations' module docstring) has no entry below, so a
+# Junior question can never reach any of these three tools; previously
+# the model called check_late_start_reduction_tool (built for Appendix
+# B/Section 3.3 late starts) against an already-wrong figure it had
+# computed itself, and the tool -- having no notion of scope -- just
+# bounds-checked and confirmed it.
+CALCULATION_TOOL_COVERAGE: dict[str, frozenset[str]] = {
+    "check_late_start_reduction_tool": frozenset({"senior_men", "senior_women"}),
+    "calculate_halved_interruption_reduction_tool": frozenset({"senior_men"}),
+    "calculate_remaining_time_reduction_tool": frozenset({"senior_women"}),
+}
 
 
-@tool
-def calculate_halved_interruption_reduction_tool(
-    minutes_lost: int, minutes_per_over: int, total_overs_cap: int
-) -> str:
-    """Deterministically compute a mid-innings weather-interruption
-    overs reduction, for a grade whose rule text describes THIS shape:
-    convert minutes lost to overs, round up to a whole over, round up
-    again to the next even number if odd, then HALVE the result and
-    deduct it from each side's own maximum overs. Only use this if the
-    retrieved rule text actually describes a halving step — if it
-    instead describes recomputing a revised total directly from
-    remaining time, use calculate_remaining_time_reduction_tool instead.
-    Never do this arithmetic yourself in free text — it is easy to
-    silently drop the halving step, which is the exact failure this
-    tool exists to remove.
-
-    Read every number from what search_rules_tool already retrieved
-    this turn — never invent or assume a value.
-
-    Returns either the computed reduction, or an explicit refusal if the
-    numbers leave no overs remaining for either side. On a refusal,
-    state that refusal in your answer — do not invent a number instead.
-
-    Args:
-        minutes_lost: whole minutes lost, as stated in the question.
-        minutes_per_over: this grade's stated rate (e.g. "one over for every four minutes"), from retrieved rule text.
-        total_overs_cap: this grade's total overs for the format, from retrieved rule text.
-    """
-    result = calculate_halved_interruption_reduction(minutes_lost, minutes_per_over, total_overs_cap)
-    if result.status == "refused_impossible":
-        return f"REFUSED — no valid numeric answer: {result.explanation}"
-    return result.explanation
+def _out_of_scope_message(tool_name: str, grade_scope: str) -> str:
+    return (
+        f"OUT OF SCOPE — {tool_name} does not cover {grade_scope}'s rules for this scenario. "
+        "Do not use this tool or invent a substitute number. Answer directly from the rule text "
+        "you retrieved instead, including any arithmetic that rule text itself describes."
+    )
 
 
-@tool
-def calculate_remaining_time_reduction_tool(
-    minutes_lost: int, minutes_per_over: int, match_window_minutes: int
-) -> str:
-    """Deterministically compute a mid-innings weather-interruption
-    overs reduction, for a grade whose rule text describes THIS shape:
-    the revised total overs = the remaining time left in the match's
-    time window, divided directly by the minutes-per-over rate — no
-    halving step. Only use this if the retrieved rule text actually
-    describes recomputing a total this way — if it instead describes a
-    halve-and-subtract-from-a-fixed-cap procedure, use
-    calculate_halved_interruption_reduction_tool instead.
+def make_check_late_start_reduction_tool(grade_scope: str | None):
+    @tool
+    def check_late_start_reduction_tool(overs_lost: int, total_overs_cap: int) -> str:
+        """Bounds-check a late-start overs reduction. Call this after you've
+        read the reduction figure straight off a retrieved late-start table
+        (a side wasn't ready at the scheduled start, for any reason OTHER
+        than weather) — do not use this for a weather-caused delay or
+        mid-innings interruption, those need a different tool.
 
-    Read every number from what search_rules_tool already retrieved
-    this turn — never invent or assume a value.
+        Read both numbers from what search_rules_tool already retrieved
+        this turn — never invent or assume either value.
 
-    Returns either the computed revised total, or an explicit refusal if
-    minutes_lost meets or exceeds the whole match window (no time
-    remains — this is the case where a result can't be achieved and the
-    match is a draw, not a numeric reduction). On a refusal, state that
-    refusal in your answer, citing whatever draw/no-result rule you
-    retrieved — do not invent a number instead.
+        Returns either the confirmed reduction, or an explicit refusal if it
+        would leave no overs to bowl. On a refusal, state that refusal in
+        your answer — do not invent a number instead.
 
-    Args:
-        minutes_lost: whole minutes lost, as stated in the question.
-        minutes_per_over: this grade's stated rate, from retrieved rule text.
-        match_window_minutes: this grade's total match time window, from retrieved rule text.
-    """
-    result = calculate_remaining_time_reduction(minutes_lost, minutes_per_over, match_window_minutes)
-    if result.status == "refused_impossible":
-        return f"REFUSED — no valid numeric answer: {result.explanation}"
-    return result.explanation
+        Args:
+            overs_lost: the reduction figure you read off the retrieved table's matching band.
+            total_overs_cap: this grade's total overs for the format, from retrieved rule text.
+        """
+        if grade_scope is not None and grade_scope not in CALCULATION_TOOL_COVERAGE["check_late_start_reduction_tool"]:
+            return _out_of_scope_message("check_late_start_reduction_tool", grade_scope)
+        result = check_late_start_reduction(overs_lost, total_overs_cap)
+        if result.status == "refused_impossible":
+            return f"REFUSED — no valid numeric answer: {result.explanation}"
+        return result.explanation
+
+    return check_late_start_reduction_tool
+
+
+def make_calculate_halved_interruption_reduction_tool(grade_scope: str | None):
+    @tool
+    def calculate_halved_interruption_reduction_tool(
+        minutes_lost: int, minutes_per_over: int, total_overs_cap: int
+    ) -> str:
+        """Deterministically compute a mid-innings weather-interruption
+        overs reduction, for a grade whose rule text describes THIS shape:
+        convert minutes lost to overs, round up to a whole over, round up
+        again to the next even number if odd, then HALVE the result and
+        deduct it from each side's own maximum overs. Only use this if the
+        retrieved rule text actually describes a halving step — if it
+        instead describes recomputing a revised total directly from
+        remaining time, use calculate_remaining_time_reduction_tool instead.
+        Never do this arithmetic yourself in free text — it is easy to
+        silently drop the halving step, which is the exact failure this
+        tool exists to remove.
+
+        Read every number from what search_rules_tool already retrieved
+        this turn — never invent or assume a value.
+
+        Returns either the computed reduction, or an explicit refusal if the
+        numbers leave no overs remaining for either side. On a refusal,
+        state that refusal in your answer — do not invent a number instead.
+
+        Args:
+            minutes_lost: whole minutes lost, as stated in the question.
+            minutes_per_over: this grade's stated rate (e.g. "one over for every four minutes"), from retrieved rule text.
+            total_overs_cap: this grade's total overs for the format, from retrieved rule text.
+        """
+        if (
+            grade_scope is not None
+            and grade_scope not in CALCULATION_TOOL_COVERAGE["calculate_halved_interruption_reduction_tool"]
+        ):
+            return _out_of_scope_message("calculate_halved_interruption_reduction_tool", grade_scope)
+        result = calculate_halved_interruption_reduction(minutes_lost, minutes_per_over, total_overs_cap)
+        if result.status == "refused_impossible":
+            return f"REFUSED — no valid numeric answer: {result.explanation}"
+        return result.explanation
+
+    return calculate_halved_interruption_reduction_tool
+
+
+def make_calculate_remaining_time_reduction_tool(grade_scope: str | None):
+    @tool
+    def calculate_remaining_time_reduction_tool(
+        minutes_lost: int, minutes_per_over: int, match_window_minutes: int
+    ) -> str:
+        """Deterministically compute a mid-innings weather-interruption
+        overs reduction, for a grade whose rule text describes THIS shape:
+        the revised total overs = the remaining time left in the match's
+        time window, divided directly by the minutes-per-over rate — no
+        halving step. Only use this if the retrieved rule text actually
+        describes recomputing a total this way — if it instead describes a
+        halve-and-subtract-from-a-fixed-cap procedure, use
+        calculate_halved_interruption_reduction_tool instead.
+
+        Read every number from what search_rules_tool already retrieved
+        this turn — never invent or assume a value.
+
+        Returns either the computed revised total, or an explicit refusal if
+        minutes_lost meets or exceeds the whole match window (no time
+        remains — this is the case where a result can't be achieved and the
+        match is a draw, not a numeric reduction). On a refusal, state that
+        refusal in your answer, citing whatever draw/no-result rule you
+        retrieved — do not invent a number instead.
+
+        Args:
+            minutes_lost: whole minutes lost, as stated in the question.
+            minutes_per_over: this grade's stated rate, from retrieved rule text.
+            match_window_minutes: this grade's total match time window, from retrieved rule text.
+        """
+        if (
+            grade_scope is not None
+            and grade_scope not in CALCULATION_TOOL_COVERAGE["calculate_remaining_time_reduction_tool"]
+        ):
+            return _out_of_scope_message("calculate_remaining_time_reduction_tool", grade_scope)
+        result = calculate_remaining_time_reduction(minutes_lost, minutes_per_over, match_window_minutes)
+        if result.status == "refused_impossible":
+            return f"REFUSED — no valid numeric answer: {result.explanation}"
+        return result.explanation
+
+    return calculate_remaining_time_reduction_tool
 
 
 @tool
@@ -539,9 +590,9 @@ def build_graph(association_id: str, checkpointer: BaseCheckpointSaver, grade_sc
     search_rules_tool = make_search_rules_tool(association_id, grade_scope=grade_scope)
     tools = [
         search_rules_tool,
-        check_late_start_reduction_tool,
-        calculate_halved_interruption_reduction_tool,
-        calculate_remaining_time_reduction_tool,
+        make_check_late_start_reduction_tool(grade_scope),
+        make_calculate_halved_interruption_reduction_tool(grade_scope),
+        make_calculate_remaining_time_reduction_tool(grade_scope),
         web_search_tool,
     ]
 
